@@ -9,6 +9,7 @@ websign/
 ├── checkin.js               # 主入口 (站点注册表)
 ├── runner.js                # 签到运行器 (调度、汇总)
 ├── telegram-login.js        # Telegram 登录助手 (生成 session, 只需跑一次)
+├── list-groups.js           # 列出账号加入的群组/频道及其 id (填 target 用)
 ├── config/
 │   └── config.example.yaml  # 统一配置模板 (复制为 config.yaml 使用)
 ├── lib/
@@ -38,7 +39,7 @@ websign/
 - `handlers/telegram.js`（要用 Telegram 签到才需要）
 - `lib/config.js`、`lib/yaml.js`、`lib/telegram-config.js`、`lib/telegram-proxy.js`
 - `config/config.example.yaml`（配置模板；青龙订阅默认不同步 yaml，见 2.1）
-- `telegram-login.js`（只在你自己电脑上跑，不用放青龙）
+- `telegram-login.js`、`list-groups.js`（辅助工具，放不放青龙都行，也可以在青龙「终端」里直接跑）
 
 > 用订阅拉取时，如果脚本管理里看不到 `config/` 目录，看下一节 2.1。
 
@@ -454,7 +455,48 @@ Telegram 群里命令通常要写成 `/checkin@aaa_bot` 才会被**指定的** b
 >
 > 你自己已经写了 `@aaa_bot` 的话，脚本不会重复追加。
 
-**取私有群的数字 id**：浏览器打开 https://web.telegram.org，进入该群，地址栏 `#-1001234567890` 里的那串就是。也可以直接粘贴 `https://t.me/c/1234567890/5` 这种链接，脚本会自动转成 `-1001234567890`。
+### 怎么查群组 / 频道的 id
+
+**方式 1：让脚本列出来（最省事）**
+
+```bash
+node list-groups.js            # 青龙「终端」里也能直接跑
+```
+
+用的是配置里已有的 session，不用重新登录。输出：
+
+```
+账号: 主账号
+网络: SOCKS5 127.0.0.1:10808
+共 3 个群组, 1 个频道
+
+群组 (可以在里面发签到内容)
+  名称                  id                 用户名
+  --------------------  -----------------  --------------------
+  我的羊毛群            -1001234567890     @mygroup
+  内部签到群            -1009876543210     (私有, 无用户名)
+
+频道 (bot 不响应命令, 只能用来接收 notify 汇总)
+  通知频道              -1001111111111     (私有, 无用户名)
+```
+
+复制 id 到配置里就行。多账号用 `node list-groups.js --account 2`。
+
+**方式 2：复制消息链接**
+
+在群里找任意一条消息 → 右键 →「复制消息链接」：
+
+| 群类型 | 链接长这样 | 配置里填 |
+|---|---|---|
+| 公开群 | `https://t.me/mygroup/123` | `'@mygroup'` 或整条链接 |
+| 私有群/频道 | `https://t.me/c/1234567890/123` | 整条链接，脚本自动转成 `-1001234567890` |
+
+**方式 3：Web 版看地址栏**
+
+浏览器打开 https://web.telegram.org → 进入该群 → 地址栏 `#-1001234567890` 里的那串就是。
+
+> ⚠️ **`t.me/+AbCdEfGh` 这种邀请链接不能用**。那是邀请码，不是群标识，脚本解析不了。
+> 只拿到邀请链接的话，先加入该群，再用上面三种方法取 id。
 
 ### 签到结果推送到频道 / 群
 
