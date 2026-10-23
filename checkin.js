@@ -33,10 +33,11 @@
  * 频道里 bot 不响应命令, 频道只用于 notify 接收签到汇总
  *
  * 配置文件查找顺序 (命中即用):
- *   1. 环境变量 CONFIG_FILE 指定的路径 (可选, 一般不用)
+ *   1. 环境变量 CONFIG_FILE 指定的路径
  *   2. config/config.yaml
  *   3. config/config.yml
- *   4. config/config.json / config.js (兼容旧版)
+ *   4. /ql/data/config/websign.yaml   青龙数据目录, 订阅更新不会覆盖 (推荐)
+ *   5. config/config.json / config.js (兼容旧版)
  *
  * 兼容旧部署: 配置文件不存在时, 仍会回退读取
  *   ISVORO_ACCOUNTS / TELEGRAM_ACCOUNTS 环境变量 (JSON)。

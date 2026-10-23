@@ -37,8 +37,10 @@ websign/
 - `handlers/isvoro.js`
 - `handlers/telegram.js`（要用 Telegram 签到才需要）
 - `lib/config.js`、`lib/yaml.js`、`lib/telegram-config.js`、`lib/telegram-proxy.js`
-- `config/config.example.yaml`（配置模板，复制成 `config.yaml` 后编辑）
+- `config/config.example.yaml`（配置模板；青龙订阅默认不同步 yaml，见 2.1）
 - `telegram-login.js`（只在你自己电脑上跑，不用放青龙）
+
+> 用订阅拉取时，如果脚本管理里看不到 `config/` 目录，看下一节 2.1。
 
 ### 2. 创建配置文件
 
@@ -89,13 +91,43 @@ telegram:
 
 1. 环境变量 `CONFIG_FILE` 指定的路径
 2. `<项目>/config/config.yaml`
-3. `<项目>/config/config.yml`
-4. `config/config.json` / `config/config.js`（兼容旧版，不再推荐）
+3. `/ql/data/config/websign.yaml`（青龙数据目录，**自动识别，推荐**）
+4. `<项目>/config/config.yml`
+5. `config/config.json` / `config/config.js`（兼容旧版，不再推荐）
 
-> ⚠️ 青龙里建议把配置放到 `/ql/data/config/config.yaml`，再设 `CONFIG_FILE=/ql/data/config/config.yaml`。
-> `/ql/data/scripts/` 下的文件会被订阅更新覆盖，配置放那里容易丢。
->
-> `config/config.yaml` 已加入 `.gitignore`，不会推到仓库。
+### 2.1 青龙里为什么看不到 config 目录
+
+青龙订阅（`ql repo`）只同步**「文件后缀」列表里**的文件，`.yaml` 默认不在其中。
+结果就是 `config/` 目录一个文件都没拉下来，空目录不显示 —— 所以脚本管理里看不到它。
+
+**做法 A（推荐）：配置放青龙数据目录，订阅更新不会覆盖**
+
+```bash
+# 进青龙容器
+docker exec -it qinglong sh
+
+mkdir -p /ql/data/config
+vi /ql/data/config/websign.yaml    # 把 config.example.yaml 的内容粘进去，改好
+```
+
+脚本会自动查找 `/ql/data/config/websign.yaml`，**不需要配任何环境变量**。
+
+好处：更新订阅、删脚本、重装容器都不会碰到它；也不会被脚本管理的误操作删掉。
+
+**做法 B：让订阅把 config 目录一起同步**
+
+订阅管理 → 编辑订阅 → **「文件后缀」** 里加上 `yaml`（多个用 `&` 分隔）：
+
+```
+js&py&ts&yaml
+```
+
+保存后重新运行一次订阅，`scripts/websign/config/` 就会出现在脚本管理里，可以直接在线编辑。
+
+> ⚠️ 做法 B 的风险：订阅更新是按仓库内容同步的，你自己 `cp` 出来的
+> `config/config.yaml` 不在仓库里，可能被清掉。长期使用建议做法 A。
+
+> `config/config.yaml` 已加入 `.gitignore`，不会推到仓库；仓库里只有 `config.example.yaml` 模板。
 
 > 环境变量（`ISVORO_ACCOUNTS`、`TELEGRAM_ACCOUNTS`、`TELEGRAM_API_ID` 等）仍可用作兼容回退，但**配置文件优先级更高**。新部署直接用配置文件即可。
 >

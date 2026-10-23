@@ -3,10 +3,17 @@
 # ════════════════════════════════════════════════════════════════════
 #
 #  用法
-#    1. 复制本文件为 config/config.yaml
-#         cp config/config.example.yaml config/config.yaml
-#    2. 按下面的注释填写; 不需要的站点整段删掉即可
-#    3. 青龙里跑一次 checkin.js, 看日志确认
+#    本地 / 已有 config 目录:
+#      1. 复制本文件为 config/config.yaml
+#           cp config/config.example.yaml config/config.yaml
+#      2. 按下面的注释填写; 不需要的站点整段删掉即可
+#      3. 跑一次 checkin.js, 看日志确认
+#
+#    青龙面板 (推荐): 放数据目录, 订阅更新不会覆盖, 也不受「文件后缀」过滤影响
+#      docker exec -it qinglong sh
+#      mkdir -p /ql/data/config
+#      vi /ql/data/config/websign.yaml     # 把本文件内容粘进去
+#      脚本会自动识别, 不需要配置任何环境变量
 #
 #  语法要点 (YAML 缩进敏感)
 #    · 缩进只能用空格, 不能混用 Tab; 建议 2 个空格一级
@@ -15,10 +22,7 @@
 #    · 行首 # 或空白后的 # 是注释, 引号里的 # 不算
 #
 #  安全提示
-#    · 本文件含账号凭据, 已加入 .gitignore, 不会提交到仓库
-#    · 青龙里建议放到 /ql/data/config/config.yaml, 再设环境变量
-#      CONFIG_FILE=/ql/data/config/config.yaml
-#      否则更新订阅脚本时, /ql/data/scripts/ 下的配置可能被覆盖
+#    · 本文件含账号凭据, 填好的 config.yaml 已加入 .gitignore, 不会提交到仓库
 # ════════════════════════════════════════════════════════════════════
 
 
