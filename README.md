@@ -111,6 +111,8 @@ Telegram 官方禁止 bot 与 bot 互相通信，所以不能用自己的 bot �
 
 （或 `docker exec -it qinglong npm install -g telegram`）
 
+> 仓库里已带 `package.json`，如果你的青龙支持在脚本目录执行 npm，也可以直接 `npm install`。
+
 #### 第 2 步：申请 api_id / api_hash
 
 1. 浏览器打开 https://my.telegram.org
