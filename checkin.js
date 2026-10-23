@@ -2,15 +2,17 @@
  * 多站点自动签到脚本 (青龙面板)
  *
  * 环境变量配置:
- *   ISVORO_ACCOUNTS  - isvoro 账户配置, JSON 数组格式
- *     格式: [{"email":"user@example.com","password":"pass123"}, ...]
- *     或单账户简写: {"email":"user@example.com","password":"pass123"}
+ *   ISVORO_ACCOUNTS  - isvoro 账户配置, JSON 格式
  *
- *   示例 (多账户):
- *     export ISVORO_ACCOUNTS='[{"email":"a@test.com","password":"111"},{"email":"b@test.com","password":"222"}]'
+ *   方式一 Cookie 认证 (推荐, 绕过 hCaptcha 验证码):
+ *     {"cookie":"pmt_csrf=你的csrf值"}
+ *     (从浏览器 F12 → Application → Cookies 获取)
  *
- *   示例 (单账户):
- *     export ISVORO_ACCOUNTS='{"email":"a@test.com","password":"111"}'
+ *   方式二 密码登录 (可能被验证码拦截):
+ *     {"email":"user@example.com","password":"pass123"}
+ *
+ *   多账户示例:
+ *     [{"cookie":"pmt_csrf=xxx"},{"cookie":"pmt_csrf=yyy"}]
  *
  * 架构说明:
  *   本脚本采用「站点处理器」架构, 每个网站实现一个 SiteHandler 接口,
