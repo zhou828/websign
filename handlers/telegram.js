@@ -142,16 +142,16 @@ class TelegramHandler extends SiteHandler {
       throw new Error(
         '缺少 api_id / api_hash。\n' +
         '获取方式: 浏览器打开 https://my.telegram.org → 登录 → API development tools → 创建应用\n' +
-        '然后到青龙环境变量里设置 TELEGRAM_API_ID / TELEGRAM_API_HASH\n' +
-        '(多账号用后缀区分: TELEGRAM_API_ID_2 / TELEGRAM_API_HASH_2)'
+        '然后把 api_id / api_hash 填到 config/config.js 里该账号的对应字段\n' +
+        '(多账号就是 telegram 数组里多个对象, 各自填自己的)'
       );
     }
     if (!session) {
       throw new Error(
         '缺少 session。请先运行 telegram-login.js 生成:\n' +
         '  node telegram-login.js --proxy socks5://127.0.0.1:10808\n' +
-        '按提示输入手机号、验证码(和两步验证密码), 最后会输出 TELEGRAM_SESSION 的值\n' +
-        '把它填到青龙环境变量 TELEGRAM_SESSION 即可'
+        '按提示输入手机号、验证码(和两步验证密码), 最后会打印一段配置块\n' +
+        '把里面的 session 值填到 config/config.js 里即可'
       );
     }
 
@@ -165,7 +165,7 @@ class TelegramHandler extends SiteHandler {
         '常见原因:\n' +
         '  1. 复制不完整 (session 很长, 一般 300~400 个字符, 确认没被截断)\n' +
         '  2. 粘贴时混入了换行/引号/空格以外的多余字符\n' +
-        '  3. 把 api_hash 或别的值填到了 TELEGRAM_SESSION\n' +
+        '  3. 把 api_hash 或别的值填到了 session 字段\n' +
         '解决: 重新运行 telegram-login.js 生成一份新的 session'
       );
     }

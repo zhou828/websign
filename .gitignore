@@ -1,7 +1,9 @@
 node_modules/
 .workbuddy-ai/
 .cookie-store/
-# 个人 Telegram 配置 (含 bot 列表/代理/频道), 不进仓库
+# 个人配置 (含账号/密码/session 等敏感信息), 不进仓库
+config/config.js
+config/config.json
 config/telegram.js
 config/telegram.json
 *.log

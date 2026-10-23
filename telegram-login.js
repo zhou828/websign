@@ -16,7 +16,9 @@
  *   2. 输入手机号 (含国家码, 如 +8613800000000)
  *   3. 输入 Telegram 里收到的验证码
  *   4. 如果开了两步验证, 再输入密码
- *   5. 终端会打印 3 个环境变量的值, 以及一份 config/telegram.js 模板
+ *   5. 终端会打印一段配置块, 直接粘到 config/config.js 的 telegram 数组里
+ *
+ * 配置只需要写在 config/config.js 里, 不需要环境变量。
  *
  * session 等于你的登录凭证, 请勿泄露给他人。
  */
@@ -175,32 +177,23 @@ async function main() {
   console.log('\n===== 登录成功 =====');
   console.log(`账号: ${name} (@${me.username || '无用户名'})  id: ${me.id}`);
 
-  console.log('\n===== 第 1 步: 到青龙「环境变量」里新建这 3 个变量 =====');
-  console.log('(session 是长字符串, 单独放一个变量, 不参与 JSON 解析, 不会出错)');
+  console.log('\n===== 把下面这段加到 config/config.js 的 telegram 数组里 =====');
+  console.log('(没有 config/config.js 的话, 先复制 config/config.example.js 改个名)');
   console.log('');
-  console.log(`TELEGRAM_API_ID=${String(apiId).trim()}`);
-  console.log(`TELEGRAM_API_HASH=${String(apiHash).trim()}`);
-  console.log(`TELEGRAM_SESSION=${session}`);
-  console.log('');
-  console.log('多账号时加后缀: TELEGRAM_API_ID_2 / TELEGRAM_API_HASH_2 / TELEGRAM_SESSION_2');
-
-  console.log('\n===== 第 2 步: 把下面内容保存为 config/telegram.js =====');
-  console.log('(bots 换成你实际要签到的目标; 想放到别处可设环境变量 TELEGRAM_CONFIG 指向它)');
-  console.log('');
-  console.log(`module.exports = [
-  {
-    name: ${JSON.stringify(name)},
-    envSuffix: '',
-    proxy: ${JSON.stringify(proxy ? `socks5://${proxy.ip}:${proxy.port}` : '')},
-    notify: '',
-    bots: [
-      { username: 'aaa_bot', command: '/checkin' },
-      { username: 'bbb_bot', command: '/daily sign' },
-      // { target: '@my_group', command: '/checkin', botUsername: 'aaa_bot' },
-      // { target: '-1001234567890', command: '/qd', botUsername: 'bbb_bot' },
-    ],
-  },
-];`);
+  console.log(`    {
+      name: ${JSON.stringify(name)},
+      api_id: ${String(apiId).trim()},
+      api_hash: ${JSON.stringify(String(apiHash).trim())},
+      session: ${JSON.stringify(session)},
+      proxy: ${JSON.stringify(proxy ? `socks5://${proxy.ip}:${proxy.port}` : '')},
+      notify: '',
+      bots: [
+        { username: 'aaa_bot', command: '/checkin' },
+        { username: 'bbb_bot', command: '/daily sign' },
+        // { target: '@my_group', command: '/checkin', botUsername: 'aaa_bot' },
+        // { target: '-1001234567890', command: '/qd', botUsername: 'bbb_bot' },
+      ],
+    },`);
   console.log('');
   console.log('提示: 群组签到要加 botUsername 指明响应的 bot; 频道只能用来接收 notify 汇总。');
 

@@ -373,7 +373,10 @@ class IsvoroHandler extends SiteHandler {
     const stored = this._loadStoredCookies();
     const sources = [];
     if (this.account.cookie) {
-      sources.push({ label: '环境变量', cookies: this._parseCookie(this.account.cookie) });
+      sources.push({
+        label: this.account._source ? `配置文件 ${path.basename(this.account._source)}` : '环境变量',
+        cookies: this._parseCookie(this.account.cookie),
+      });
     }
     if (stored) {
       sources.push({ label: `本地缓存 (保存于 ${stored.savedAt})`, cookies: stored.cookies });
@@ -406,10 +409,14 @@ class IsvoroHandler extends SiteHandler {
         }
       }
 
+      const where = this.account._source
+        ? `配置文件 ${this.account._source} 里 isvoro.accounts 的 cookie`
+        : '青龙环境变量 ISVORO_ACCOUNTS';
+
       throw new Error(
         `Cookie 认证失败 (已尝试 ${sources.length} 个来源)\n` +
         errors.map(x => `- ${x}`).join('\n') + '\n' +
-        '\n解决办法: 浏览器登录 isvoro.com → F12 → Network 面板 → 筛选 auth/refresh → 点开该请求 → 复制 Request Headers 里 Cookie 整行 → 更新青龙环境变量 ISVORO_ACCOUNTS'
+        `\n解决办法: 浏览器登录 isvoro.com → F12 → Network 面板 → 筛选 auth/refresh → 点开该请求 → 复制 Request Headers 里 Cookie 整行 → 更新${where}`
       );
     }
 
