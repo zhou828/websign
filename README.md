@@ -32,28 +32,38 @@ websign/
 
 #### 方式一：Cookie 认证（推荐，绕过验证码）
 
-Isvoro 登录接口有 hCaptcha 验证码，密码方式无法自动登录。推荐使用 Cookie 方式：
+Isvoro 登录接口有 hCaptcha 验证码，密码方式无法自动登录。推荐使用 Cookie 方式。
+
+**关键：必须复制以下 3 个 Cookie（缺一不可）：**
+
+| Cookie 名 | 作用 |
+|-----------|------|
+| `pmt_access` | 访问令牌（身份认证核心） |
+| `pmt_refresh` | 刷新令牌（access 过期后用它续期） |
+| `pmt_csrf` | CSRF 保护（POST 请求必需） |
 
 **获取 Cookie 步骤：**
-1. 浏览器打开 https://isvoro.com 并登录
+
+1. 浏览器打开 https://isvoro.com 并**登录**
 2. 按 `F12` 打开开发者工具
-3. 切到 `Application`（应用）→ `Cookies` → `https://isvoro.com`
-4. 找到 `pmt_csrf` 的值，复制
-5. 也可以在 Network 面板里找一个 API 请求，复制完整 Cookie 请求头
+3. 切到 **Application（应用程序）** → 左侧 **Cookies** → `https://isvoro.com`
+4. 找到 `pmt_access`、`pmt_refresh`、`pmt_csrf` 三行，分别复制它们的 Value
+5. 拼成如下格式（用分号分隔）：
 
-**单账户：**
 ```
-{"cookie":"pmt_csrf=你的csrf值"}
+pmt_access=xxx; pmt_refresh=yyy; pmt_csrf=zzz
 ```
 
-也可以直接复制浏览器里完整的 Cookie 字符串：
+**配置示例（单账户）：**
 ```
-{"cookie":"pmt_csrf=xxx; other_cookie=yyy; ..."}
+{"cookie":"pmt_access=xxx; pmt_refresh=yyy; pmt_csrf=zzz"}
 ```
+
+**更简单的做法**：在开发者工具切到 **Network（网络）** 面板，随便点一个 `api/v1` 开头的请求，在 **Request Headers** 里找到 `Cookie:` 那一行，把整行的值全部复制，直接贴进去。
 
 **多账户：**
 ```
-[{"cookie":"pmt_csrf=xxx"},{"cookie":"pmt_csrf=yyy"}]
+[{"cookie":"pmt_access=xxx; pmt_refresh=yyy; pmt_csrf=zzz"},{"cookie":"..."}]
 ```
 
 #### 方式二：密码登录（可能被验证码拦截）

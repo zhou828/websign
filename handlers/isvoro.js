@@ -144,39 +144,58 @@ class IsvoroHandler extends SiteHandler {
     // ── 方式一: Cookie 认证 (推荐) ──
     if (this.account.cookie) {
       this.logger.info('使用 Cookie 方式认证');
+      const cookieKeys = Object.keys(this.cookies);
+      this.logger.info(`已解析 Cookie 字段: ${cookieKeys.join(', ') || '(空)'}`);
+
+      const hasAccess = !!this.cookies['pmt_access'];
+      const hasRefresh = !!this.cookies['pmt_refresh'];
       const hasCsrf = !!this.cookies['pmt_csrf'];
 
-      // 先尝试刷新 session
-      if (hasCsrf) {
-        try {
-          await this._request('POST', '/auth/refresh');
-          this.logger.info('Session 刷新成功');
-        } catch (e) {
-          this.logger.warn('Session 刷新失败, 尝试直接调用 API');
-        }
+      if (!hasAccess && !hasRefresh) {
+        throw new Error(
+          '缺少关键认证 Cookie (pmt_access / pmt_refresh)。\n' +
+          '当前只有: ' + (cookieKeys.join(', ') || '(空)') + '\n' +
+          '请重新获取完整 Cookie: 浏览器登录 isvoro.com → F12 → Application → Cookies → 复制 pmt_access、pmt_refresh、pmt_csrf 三个值'
+        );
       }
 
-      // 验证 cookie 是否有效
-      const res = await this._request('GET', '/auth/me');
-      if (res.status === 200 && (res.data?.data?.id || res.data?.data?.email || res.data?.id)) {
-        const user = res.data?.data || res.data;
-        this.logger.info(`Cookie 认证成功: ${user.email || '已登录用户'}`);
-        return;
-      }
-
-      // 如果 cookie 无效, 尝试刷新 CSRF
-      this.logger.warn('Cookie 可能已过期, 尝试刷新...');
-      const refreshRes = await this._request('POST', '/auth/refresh');
-      if (refreshRes.status === 200) {
+      // 第一步: 直接用 pmt_access 验证
+      if (hasAccess) {
         const meRes = await this._request('GET', '/auth/me');
-        if (meRes.status === 200 && (meRes.data?.data?.id || meRes.data?.id)) {
+        this.logger.info(`/auth/me 响应: HTTP ${meRes.status}, data: ${JSON.stringify(meRes.data).substring(0, 300)}`);
+        if (meRes.status === 200) {
           const user = meRes.data?.data || meRes.data;
-          this.logger.info(`Cookie 刷新后认证成功: ${user.email || '已登录用户'}`);
-          return;
+          if (user && (user.id || user.email || user.username)) {
+            this.logger.info(`Cookie 认证成功: ${user.email || user.username || '已登录用户'}`);
+            return;
+          }
         }
       }
 
-      throw new Error('Cookie 已过期, 请重新从浏览器获取 Cookie。方法: 浏览器登录 isvoro.com → F12 → Application → Cookies → 复制完整 cookie 字符串');
+      // 第二步: pmt_access 无效/缺失, 用 pmt_refresh 刷新
+      if (hasRefresh) {
+        this.logger.info('尝试用 pmt_refresh 刷新 access token...');
+        const refreshRes = await this._request('POST', '/auth/refresh');
+        this.logger.info(`刷新响应: HTTP ${refreshRes.status}, data: ${JSON.stringify(refreshRes.data).substring(0, 300)}`);
+        this.logger.info(`刷新后 cookies: ${Object.keys(this.cookies).join(', ') || '(空)'}`);
+
+        if (refreshRes.status === 200) {
+          const meRes = await this._request('GET', '/auth/me');
+          this.logger.info(`刷新后 /auth/me: HTTP ${meRes.status}, data: ${JSON.stringify(meRes.data).substring(0, 300)}`);
+          if (meRes.status === 200) {
+            const user = meRes.data?.data || meRes.data;
+            if (user && (user.id || user.email || user.username)) {
+              this.logger.info(`Cookie 认证成功: ${user.email || user.username || '已登录用户'}`);
+              return;
+            }
+          }
+        }
+      }
+
+      throw new Error(
+        `Cookie 认证失败。当前 cookie 字段: ${cookieKeys.join(', ')}\n` +
+        `请重新从浏览器复制完整 Cookie (需要 pmt_access、pmt_refresh、pmt_csrf)`
+      );
     }
 
     // ── 方式二: 密码登录 (可能被验证码拦截) ──

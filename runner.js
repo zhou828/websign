@@ -97,14 +97,16 @@ class SiteCheckinRunner {
     for (let i = 0; i < accounts.length; i++) {
       const account = accounts[i];
       const accLogger = this.logger.child(`${siteConfig.label}#${i + 1}`);
-      accLogger.info(`开始处理: ${account.email}`);
+      // 账户标识: 优先 email, 其次 username, 再次 cookie 模式提示
+      const accLabel = account.email || account.username || account.name || `Cookie账户#${i + 1}`;
+      accLogger.info(`开始处理: ${accLabel}`);
 
       try {
         const handler = new siteConfig.handler(account, accLogger);
         const result = await handler.runCheckin();
 
         results.push({
-          email: account.email,
+          email: accLabel,
           success: true,
           skipped: result.skipped,
           message: result.skipped ? '今日已签到' : '签到成功',
@@ -113,7 +115,7 @@ class SiteCheckinRunner {
       } catch (err) {
         accLogger.error(`签到失败: ${err.message}`);
         results.push({
-          email: account.email,
+          email: accLabel,
           success: false,
           message: err.message,
         });
