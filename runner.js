@@ -131,8 +131,8 @@ class SiteCheckinRunner {
     for (let i = 0; i < accounts.length; i++) {
       const account = accounts[i];
       const accLogger = this.logger.child(`${siteConfig.label}#${i + 1}`);
-      // 账户标识: 优先 email, 其次 username, 再次 cookie 模式提示
-      const accLabel = account.email || account.username || account.name || `Cookie账户#${i + 1}`;
+      // 账户标识: 优先 name/email/username/phone, 再次通用序号
+      const accLabel = account.name || account.email || account.username || account.phone || `账户#${i + 1}`;
       accLogger.info(`开始处理: ${accLabel}`);
 
       try {

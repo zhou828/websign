@@ -1,6 +1,6 @@
-# Isvoro 多站点自动签到
+# 多站点自动签到
 
-青龙面板自动签到脚本，支持 Isvoro 网站签到，架构上预留其他网站扩展。
+青龙面板自动签到脚本，支持 Isvoro 网站签到、Telegram bot 命令签到，架构上预留其他网站扩展。
 
 ## 文件结构
 
@@ -8,9 +8,11 @@
 websign/
 ├── checkin.js              # 主入口
 ├── runner.js               # 签到运行器 (解析环境变量、调度、汇总)
+├── telegram-login.js       # Telegram 登录助手 (生成 session, 只需跑一次)
 ├── handlers/
 │   ├── base.js             # 站点处理器基类 (定义接口规范)
 │   ├── isvoro.js           # Isvoro 签到处理器
+│   ├── telegram.js         # Telegram bot 签到处理器
 │   └── example.js          # 示例模板 (新增网站时复制修改)
 ```
 
@@ -23,12 +25,15 @@ websign/
 - `runner.js`
 - `handlers/base.js`
 - `handlers/isvoro.js`
+- `handlers/telegram.js`（要用 Telegram 签到才需要）
+- `telegram-login.js`（只在你自己电脑上跑，不用放青龙）
 
 ### 2. 添加环境变量
 
 | 变量名 | 说明 |
 |--------|------|
 | `ISVORO_ACCOUNTS` | Isvoro 账户配置，JSON 格式 |
+| `TELEGRAM_ACCOUNTS` | Telegram bot 签到配置，JSON 格式（见下文） |
 
 #### 方式一：Cookie 认证（推荐，绕过验证码）
 
@@ -89,6 +94,126 @@ pmt_access=ddd; pmt_refresh=eee; pmt_csrf=fff
 ```
 
 > 注意：登录接口正常情况下需要 hCaptcha 验证码，密码方式大概率会报错。请优先使用 Cookie 方式。
+
+---
+
+### 2.1 Telegram bot 签到（可选）
+
+给多个 Telegram bot 发送各自的签到命令（每个 bot 命令可以不一样）。
+
+#### 为什么必须用「用户账号」
+
+Telegram 官方禁止 bot 与 bot 互相通信，所以不能用自己的 bot 去给目标 bot 发消息。脚本用 **MTProto 协议**以你自己的账号身份发送，这也是唯一稳定的方案。
+
+#### 第 1 步：装依赖
+
+青龙面板 → **依赖管理** → Nodejs → 名称填 `telegram` → 安装。
+
+（或 `docker exec -it qinglong npm install -g telegram`）
+
+#### 第 2 步：申请 api_id / api_hash
+
+1. 浏览器打开 https://my.telegram.org
+2. 用你的手机号登录
+3. 进入 **API development tools**
+4. 随便填个 App title / short name，创建后会得到 `api_id`（数字）和 `api_hash`（32 位字符串）
+
+#### 第 3 步：生成 session（只做一次）
+
+**在你自己的电脑上**执行（需要交互输入验证码，青龙里跑不了）：
+
+```bash
+npm install telegram
+node telegram-login.js
+```
+
+按提示输入 `api_id`、`api_hash`、手机号（含国家码如 `+8613800000000`）、Telegram 收到的验证码，如果开了两步验证再输密码。
+
+运行结束会打印一串 `session`，**以及一份可直接粘贴的完整 JSON 配置**。
+
+> `session` 等于你的登录凭证，泄露等于账号被登录，切勿外传。
+
+#### 第 4 步：配置环境变量
+
+青龙 → 环境变量 → 新建 `TELEGRAM_ACCOUNTS`：
+
+```json
+{
+  "api_id": 123456,
+  "api_hash": "0123456789abcdef0123456789abcdef",
+  "session": "1BVtsOK...",
+  "proxy": "socks5://127.0.0.1:10808",
+  "bots": [
+    { "username": "aaa_bot", "command": "/checkin" },
+    { "username": "bbb_bot", "command": "/daily sign" },
+    { "username": "ccc_bot", "command": ["/start", "/checkin"], "clickButton": "签到" }
+  ]
+}
+```
+
+多个 Telegram 账号就写成数组：`[{...}, {...}]`。
+
+**每个 bot 支持的字段：**
+
+| 字段 | 必填 | 说明 |
+|------|------|------|
+| `username` | 是 | bot 用户名，可带 `@` |
+| `command` | 是 | 要发送的命令；数组可发多条，如 `["/start","/checkin"]` |
+| `clickButton` | 否 | 若 bot 回复带内联按钮，自动点击文字匹配的按钮（如 `"签到"`） |
+| `waitSeconds` | 否 | 等待回复秒数，默认 8 |
+| `successKeywords` | 否 | 自定义成功关键词 |
+| `skipKeywords` | 否 | 自定义"已签到"关键词 |
+| `failKeywords` | 否 | 自定义失败关键词 |
+| `enabled` | 否 | 设 `false` 可临时跳过该 bot |
+
+也可以简写成字符串数组：`"bots": ["aaa_bot:/checkin", "bbb_bot /daily"]`
+
+#### 第 5 步：跑一次看结果
+
+日志会长这样：
+
+```
+[Telegram#1] 连接 Telegram (api_id=123456)...
+[Telegram#1] 使用 SOCKS5 代理 127.0.0.1:10808
+[Telegram#1] Telegram 登录成功: 你的名字 (@yourname)
+[Telegram#1] 共 3 个 bot 待签到
+[Telegram#1] @aaa_bot → 发送命令: /checkin
+[Telegram#1] @aaa_bot 回复: 签到成功，获得 10 积分
+[Telegram#1] ✅ @aaa_bot 签到成功
+[Telegram#1] @ccc_bot 已点击按钮: 签到
+[Telegram#1] Telegram 签到完成: 成功 3, 已签到 0, 失败 0
+```
+
+#### Telegram 代理说明
+
+GramJS（MTProto 库）**只支持 SOCKS5 和 MTProxy，不支持 HTTP 代理**。
+
+脚本会按这个顺序找代理：
+
+1. 配置里的 `proxy` 字段
+2. 环境变量 `TG_PROXY` / `TELEGRAM_PROXY`
+3. 环境变量 `ALL_PROXY` / `HTTPS_PROXY` / `HTTP_PROXY`（按 SOCKS5 尝试）
+
+自测代理是否可用：
+
+```bash
+curl --socks5-hostname 127.0.0.1:10808 https://api.telegram.org
+```
+
+返回 302 就说明 SOCKS5 可用。Clash 的混合端口（默认 7890）同时支持 HTTP 和 SOCKS5，最省事。
+
+#### 常见问题
+
+| 现象 | 原因 / 解决 |
+|------|------------|
+| `缺少 telegram 依赖` | 青龙依赖管理里装 `telegram` |
+| `连接 Telegram 超时` | 没配 SOCKS5 代理，或端口不支持 SOCKS5 |
+| `session 已失效` | 在客户端里被"终止其他设备登录"了，重跑 `telegram-login.js` |
+| `未收到回复` | bot 要求先 `/start`，把 `command` 改成 `["/start","/checkin"]` |
+| `未识别结果` | bot 回复文案特殊，加 `successKeywords` / `skipKeywords` 自定义 |
+| 命令发了但没签到 | 可能是按钮式签到，加 `clickButton: "签到"` |
+
+---
 
 ### 3. 添加定时任务
 

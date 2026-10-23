@@ -14,6 +14,25 @@
  *   多账户示例:
  *     [{"cookie":"pmt_csrf=xxx"},{"cookie":"pmt_csrf=yyy"}]
  *
+ *   TELEGRAM_ACCOUNTS - Telegram bot 签到配置 (可选)
+ *     给多个 bot 发送各自的签到命令。Telegram 禁止 bot 之间通信,
+ *     因此用个人账号 (MTProto) 身份发送, 需要先运行 telegram-login.js 生成 session。
+ *
+ *     {
+ *       "api_id": 123456,
+ *       "api_hash": "0123456789abcdef0123456789abcdef",
+ *       "session": "1BVtsOK...",
+ *       "proxy": "socks5://127.0.0.1:10808",
+ *       "bots": [
+ *         { "username": "aaa_bot", "command": "/checkin" },
+ *         { "username": "bbb_bot", "command": "/daily sign", "waitSeconds": 10 },
+ *         { "username": "ccc_bot", "command": ["/start", "/checkin"], "clickButton": "签到" }
+ *       ]
+ *     }
+ *
+ *     多账号写成数组: [{...}, {...}]
+ *     bots 也支持简写: ["aaa_bot:/checkin", "bbb_bot /daily"]
+ *
  * 架构说明:
  *   本脚本采用「站点处理器」架构, 每个网站实现一个 SiteHandler 接口,
  *   包含 login / checkinStatus / doCheckin 三个方法。
@@ -26,6 +45,7 @@
  */
 
 const { IsvoroHandler } = require('./handlers/isvoro');
+const { TelegramHandler } = require('./handlers/telegram');
 const { SiteCheckinRunner } = require('./runner');
 
 // ============================================================
@@ -36,6 +56,11 @@ const siteRegistry = {
     handler: IsvoroHandler,
     envKey: 'ISVORO_ACCOUNTS',  // 青龙环境变量名
     label: 'Isvoro',
+  },
+  telegram: {
+    handler: TelegramHandler,
+    envKey: 'TELEGRAM_ACCOUNTS',
+    label: 'Telegram',
   },
   // ── 预留其他网站 ──
   // example: {
