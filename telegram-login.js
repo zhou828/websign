@@ -37,25 +37,62 @@ function createAsk() {
 async function main() {
   const { rl, ask } = createAsk();
 
+  if (process.argv.includes('-h') || process.argv.includes('--help')) {
+    console.log('用法: node telegram-login.js [api_id] [api_hash]');
+    console.log('不带参数时会交互式询问。api_id/api_hash 从 https://my.telegram.org 获取。');
+    rl.close();
+    return;
+  }
+
   console.log('===== Telegram 登录助手 =====');
-  console.log('api_id / api_hash 获取: https://my.telegram.org → API development tools\n');
+  console.log('');
+  console.log('需要两个值: api_id 和 api_hash');
+  console.log('它们是 Telegram 发给「第三方客户端应用」的应用凭证 ——');
+  console.log('不是手机号, 不是登录密码, 也不是 bot token。');
+  console.log('');
+  console.log('获取步骤:');
+  console.log('  1. 浏览器打开 https://my.telegram.org  (国内需代理)');
+  console.log('  2. 输入手机号(含国家码, 如 +8613800000000)');
+  console.log('     验证码会发到 Telegram App 里名为「Telegram」的官方会话, 不是短信');
+  console.log('  3. 登录后点 API development tools');
+  console.log('  4. App title / Short name 随便填(如 websign / websign) → Create application');
+  console.log('  5. 页面上 App api_id (一串数字) 和 App api_hash (32 位字符) 就是这两个值');
+  console.log('');
+  console.log('提示: 一个账号只需创建一次, 以后一直复用; 换 api_id 会让旧 session 失效。');
+  console.log('');
 
   let apiId = process.env.TELEGRAM_API_ID || process.argv[2];
   let apiHash = process.env.TELEGRAM_API_HASH || process.argv[3];
 
-  if (!apiId) apiId = await ask('api_id: ');
-  if (!apiHash) apiHash = await ask('api_hash: ');
-
-  if (!apiId || !apiHash) {
-    console.error('❌ api_id / api_hash 不能为空');
+  // api_id 必须是纯数字, 输错时重问
+  for (let i = 0; i < 3; i++) {
+    if (apiId) {
+      if (/^\d+$/.test(String(apiId).trim())) break;
+      console.log(`⚠️ api_id 必须是纯数字, 你输入的是「${apiId}」, 请重新输入`);
+      apiId = '';
+    }
+    apiId = await ask('api_id (纯数字, 如 1234567): ');
+  }
+  if (!apiId || !/^\d+$/.test(String(apiId).trim())) {
+    console.error('❌ api_id 格式不正确, 退出。请到 https://my.telegram.org 重新确认。');
     rl.close();
     process.exit(1);
   }
 
+  if (!apiHash) apiHash = await ask('api_hash (32 位字符): ');
+  if (!apiHash) {
+    console.error('❌ api_hash 不能为空');
+    rl.close();
+    process.exit(1);
+  }
+  if (!/^[a-f0-9]{32}$/i.test(String(apiHash).trim())) {
+    console.log(`⚠️ api_hash 通常是 32 位十六进制字符, 你输入的是 ${String(apiHash).length} 位, 请确认没粘错(继续执行)`);
+  }
+
   const client = new TelegramClient(
     new StringSession(''),
-    Number(apiId),
-    String(apiHash),
+    Number(String(apiId).trim()),
+    String(apiHash).trim(),
     { connectionRetries: 5, timeout: 30 }
   );
 
@@ -80,8 +117,8 @@ async function main() {
 
   console.log('\n===== 可直接粘贴到青龙环境变量 TELEGRAM_ACCOUNTS 的配置 =====');
   console.log(JSON.stringify({
-    api_id: Number(apiId),
-    api_hash: String(apiHash),
+    api_id: Number(String(apiId).trim()),
+    api_hash: String(apiHash).trim(),
     session,
     bots: [
       { username: 'aaa_bot', command: '/checkin' },
@@ -89,6 +126,8 @@ async function main() {
     ],
   }, null, 2));
   console.log('\n把 bots 数组里的示例换成你实际要签到的 bot 和命令即可。');
+  console.log('群组签到加 "target": "@群用户名", 并补 "botUsername" 指明响应的 bot。');
+  console.log('想把汇总推到频道, 在配置里加 "notify": "@你的频道"。');
 
   await client.disconnect();
   rl.close();

@@ -115,10 +115,12 @@ Telegram 官方禁止 bot 与 bot 互相通信，所以不能用自己的 bot �
 
 #### 第 2 步：申请 api_id / api_hash
 
-1. 浏览器打开 https://my.telegram.org
-2. 用你的手机号登录
+`api_id` / `api_hash` 是 Telegram 发给「第三方客户端应用」的**应用凭证**——不是手机号，不是登录密码，也不是 bot token。一个账号创建一次就够，之后一直复用。
+
+1. 浏览器打开 https://my.telegram.org（国内需代理）
+2. 用你的手机号登录（验证码发到 Telegram App 里名为「Telegram」的官方会话，不是短信）
 3. 进入 **API development tools**
-4. 随便填个 App title / short name，创建后会得到 `api_id`（数字）和 `api_hash`（32 位字符串）
+4. 随便填个 App title / short name，创建后会得到 `api_id`（纯数字）和 `api_hash`（32 位字符）
 
 #### 第 3 步：生成 session（只做一次）
 
