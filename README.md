@@ -95,39 +95,72 @@ telegram:
 4. `<项目>/config/config.yml`
 5. `config/config.json` / `config/config.js`（兼容旧版，不再推荐）
 
-### 2.1 青龙里为什么看不到 config 目录
+### 2.1 青龙脚本管理里看不到 config 目录 / 没有 yaml 模板
 
-青龙订阅（`ql repo`）只同步**「文件后缀」列表里**的文件，`.yaml` 默认不在其中。
-结果就是 `config/` 目录一个文件都没拉下来，空目录不显示 —— 所以脚本管理里看不到它。
-
-**做法 A（推荐）：配置放青龙数据目录，订阅更新不会覆盖**
+**原因**：青龙订阅拉取（`ql repo`）只同步**指定后缀**的文件。这个后缀由
+`/ql/data/config/config.sh` 里的 `RepoFileExtensions` 决定，默认值是：
 
 ```bash
-# 进青龙容器
-docker exec -it qinglong sh
+RepoFileExtensions="js mjs py pyc"
+```
 
+`.yaml` 不在里面，所以 `config/config.example.yaml` 根本没被拉下来 ——
+`config/` 变成空目录，青龙不显示空目录，脚本管理里自然看不到它。
+
+**做法 1（推荐）：改全局后缀，所有订阅都生效**
+
+```bash
+docker exec -it qinglong sh
+vi /ql/data/config/config.sh
+```
+
+把这一行改成（**在后面追加** `yaml yml`，原来的别删）：
+
+```bash
+RepoFileExtensions="js mjs py pyc yaml yml"
+```
+
+保存后重启青龙容器让配置生效：
+
+```bash
+docker restart qinglong
+```
+
+再回到订阅管理点「运行」，刷新脚本管理，`websign/config/` 和
+`config.example.yaml` 就都出来了。
+
+**做法 2：只改这一个订阅**
+
+订阅管理 → 编辑订阅 → **「文件后缀」** 填：
+
+```
+js mjs py pyc yaml yml
+```
+
+> ⚠️ 两个坑：
+> 1. **空格分隔**，不是逗号也不是 `&`。
+> 2. 一旦这里填了值，就会**覆盖**全局的 `RepoFileExtensions`。所以必须把
+>    `js mjs py pyc` 一起写上，只写 `yaml` 会导致连 `checkin.js` 都拉不下来。
+
+保存后运行一次订阅即可。
+
+**做法 3：配置不放 scripts，放青龙数据目录（最稳）**
+
+如果只是想让脚本能读到配置、不在乎在脚本管理里看到它：
+
+```bash
+docker exec -it qinglong sh
 mkdir -p /ql/data/config
 vi /ql/data/config/websign.yaml    # 把 config.example.yaml 的内容粘进去，改好
 ```
 
-脚本会自动查找 `/ql/data/config/websign.yaml`，**不需要配任何环境变量**。
+脚本会自动查找 `/ql/data/config/websign.yaml`，不需要配任何环境变量。
+更新订阅、删脚本、重装容器都不会碰到它。
 
-好处：更新订阅、删脚本、重装容器都不会碰到它；也不会被脚本管理的误操作删掉。
-
-**做法 B：让订阅把 config 目录一起同步**
-
-订阅管理 → 编辑订阅 → **「文件后缀」** 里加上 `yaml`（多个用 `&` 分隔）：
-
-```
-js&py&ts&yaml
-```
-
-保存后重新运行一次订阅，`scripts/websign/config/` 就会出现在脚本管理里，可以直接在线编辑。
-
-> ⚠️ 做法 B 的风险：订阅更新是按仓库内容同步的，你自己 `cp` 出来的
-> `config/config.yaml` 不在仓库里，可能被清掉。长期使用建议做法 A。
-
-> `config/config.yaml` 已加入 `.gitignore`，不会推到仓库；仓库里只有 `config.example.yaml` 模板。
+> 注意：`config/config.yaml` 在 `.gitignore` 里，仓库只有 `config.example.yaml`。
+> 所以订阅永远只会拉下模板，你自己复制出来的 `config.yaml` 不在仓库里，
+> 订阅更新时可能被清掉 —— 这也是推荐做法 3 的原因。
+> 在面板里可以直接右键 `config.example.yaml` → 复制 → 改名 `config.yaml`。
 
 > 环境变量（`ISVORO_ACCOUNTS`、`TELEGRAM_ACCOUNTS`、`TELEGRAM_API_ID` 等）仍可用作兼容回退，但**配置文件优先级更高**。新部署直接用配置文件即可。
 >
