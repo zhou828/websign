@@ -71,12 +71,20 @@ class SiteCheckinRunner {
     }
 
     // ── 3. 纯 Cookie 字符串 (包含 key=value; 形式) ──
-    // 特征: 含 '=' 且 (含 ';' 或含 'pmt_' 等 cookie 名)
-    const looksLikeCookie = /[=]/.test(trimmed) && !/^[^{]*@[^{]*:/.test(trimmed);
-    if (looksLikeCookie && /pmt_|session|token|csrf/i.test(trimmed)) {
-      // 多账户用换行分隔
-      const cookieEntries = trimmed.split(/\n/).map(s => s.trim()).filter(Boolean);
-      return cookieEntries.map(c => ({ cookie: c }));
+    if (/pmt_|session|token|csrf/i.test(trimmed) && /[=]/.test(trimmed)) {
+      const lines = trimmed.split(/\n/).map(s => s.trim()).filter(Boolean);
+
+      // 判断是否多账户: 每一行都必须独立含关键认证 cookie
+      const isMultiAccount = lines.length > 1 &&
+        lines.every(l => /(pmt_access|pmt_refresh|session|token)\s*=/i.test(l));
+
+      if (isMultiAccount) {
+        return lines.map(c => ({ cookie: c }));
+      }
+
+      // 单账户: 把换行当分隔符合并 (用户粘贴的 cookie 可能被换行拆开)
+      const merged = lines.join('; ').replace(/;\s*;/g, ';');
+      return [{ cookie: merged }];
     }
 
     // ── 4. email:password 格式, 多账户用 & 或换行分隔 ──
@@ -139,11 +147,18 @@ class SiteCheckinRunner {
         });
         successCount++;
       } catch (err) {
-        accLogger.error(`签到失败: ${err.message}`);
+        // 详细错误输出, 便于排查 (err.message 可能为空)
+        const errMsg = err && err.message ? err.message : String(err);
+        accLogger.error(`签到失败: ${errMsg}`);
+        if (err && err.stack) {
+          accLogger.error(`错误堆栈: ${err.stack}`);
+        } else {
+          accLogger.error(`原始错误对象: ${JSON.stringify(err)}`);
+        }
         results.push({
           email: accLabel,
           success: false,
-          message: err.message,
+          message: errMsg,
         });
         failCount++;
       }

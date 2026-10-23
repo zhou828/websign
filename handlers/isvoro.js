@@ -37,14 +37,22 @@ class IsvoroHandler extends SiteHandler {
 
   /**
    * 解析 Cookie 字符串为 { key: value } 对象
+   * 容错处理: 过滤换行/回车/制表符/多余空格, 兼容带 "Cookie:" 前缀的复制内容
    */
   _parseCookieString(cookieStr) {
-    const pairs = cookieStr.split(';');
+    // 去掉可能粘贴进来的 "Cookie:" 前缀
+    let cleaned = String(cookieStr).replace(/^\s*Cookie\s*:\s*/i, '');
+    // 换行/回车/制表符统一转成空格 (浏览器复制多行时会有)
+    cleaned = cleaned.replace(/[\r\n\t]+/g, ' ');
+
+    const pairs = cleaned.split(';');
     for (const pair of pairs) {
-      const idx = pair.indexOf('=');
+      const trimmedPair = pair.trim();
+      if (!trimmedPair) continue;
+      const idx = trimmedPair.indexOf('=');
       if (idx > 0) {
-        const key = pair.substring(0, idx).trim();
-        const val = pair.substring(idx + 1).trim();
+        const key = trimmedPair.substring(0, idx).trim();
+        const val = trimmedPair.substring(idx + 1).trim();
         if (key && val) {
           this.cookies[key] = val;
         }
@@ -57,25 +65,27 @@ class IsvoroHandler extends SiteHandler {
    */
   _request(method, path, { body, headers, timeout = 30000 } = {}) {
     return new Promise((resolve, reject) => {
-      const isApiPath = path.startsWith('/') && !path.startsWith('//') && path !== '/' && !path.startsWith('/assets') && !path.startsWith('/fonts');
-      const fullPath = path.startsWith('http') ? path : (isApiPath ? this.apiPrefix + path : path);
-      const url = new URL(fullPath, this.baseUrl);
-      const isHttps = url.protocol === 'https:';
-      const lib = isHttps ? https : http;
+      try {
+        const isApiPath = path.startsWith('/') && !path.startsWith('//') && path !== '/' && !path.startsWith('/assets') && !path.startsWith('/fonts');
+        const fullPath = path.startsWith('http') ? path : (isApiPath ? this.apiPrefix + path : path);
+        const url = new URL(fullPath, this.baseUrl);
+        const isHttps = url.protocol === 'https:';
+        const lib = isHttps ? https : http;
 
-      const cookieStr = Object.entries(this.cookies)
-        .map(([k, v]) => `${k}=${v}`)
-        .join('; ');
+        // 清理 cookie 值中的非法字符 (换行/回车/制表符会导致 HTTP 头校验失败)
+        const cookieStr = Object.entries(this.cookies)
+          .map(([k, v]) => `${String(k).trim()}=${String(v).replace(/[\r\n\t]/g, '').trim()}`)
+          .join('; ');
 
-      const reqHeaders = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        'Accept': 'application/json, text/plain, */*',
-        'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
-        'Content-Type': 'application/json',
-        'Referer': this.baseUrl + '/',
-        'Origin': this.baseUrl,
-        ...headers,
-      };
+        const reqHeaders = {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+          'Accept': 'application/json, text/plain, */*',
+          'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
+          'Content-Type': 'application/json',
+          'Referer': this.baseUrl + '/',
+          'Origin': this.baseUrl,
+          ...headers,
+        };
 
       if (cookieStr) {
         reqHeaders['Cookie'] = cookieStr;
@@ -127,12 +137,21 @@ class IsvoroHandler extends SiteHandler {
         reject(new Error(`请求超时: ${method} ${path}`));
       });
 
-      req.on('error', reject);
+      req.on('error', (e) => {
+        // 确保错误信息不为空
+        const msg = (e && e.message) ? e.message : (e && e.code) ? `网络错误 (${e.code})` : '未知网络错误';
+        reject(new Error(`请求失败 ${method} ${path}: ${msg}`));
+      });
 
       if (body) {
         req.write(JSON.stringify(body));
       }
       req.end();
+      } catch (e) {
+        // 捕获同步异常 (如 URL 解析失败、HTTP 头非法字符等)
+        const msg = (e && e.message) ? e.message : String(e);
+        reject(new Error(`请求构造失败 ${method} ${path}: ${msg}`));
+      }
     });
   }
 
@@ -192,9 +211,19 @@ class IsvoroHandler extends SiteHandler {
         }
       }
 
+      // 组装失败原因
+      const missing = [];
+      if (!hasRefresh) missing.push('pmt_refresh (刷新令牌, 缺它无法自动续期)');
+      if (!hasAccess) missing.push('pmt_access (访问令牌)');
+      if (!hasCsrf) missing.push('pmt_csrf (CSRF 令牌)');
+
       throw new Error(
-        `Cookie 认证失败。当前 cookie 字段: ${cookieKeys.join(', ')}\n` +
-        `请重新从浏览器复制完整 Cookie (需要 pmt_access、pmt_refresh、pmt_csrf)`
+        `Cookie 认证失败。当前解析到的字段: [${cookieKeys.join(', ') || '空'}]\n` +
+        (missing.length ? `缺失: ${missing.join('、')}\n` : '') +
+        `\n正确获取方式 (任选其一):\n` +
+        `【方法A - 推荐】浏览器登录 isvoro.com → F12 → Network 面板 → 筛选 auth/refresh → 点开该请求 → Request Headers 里的 Cookie 整行复制\n` +
+        `【方法B】F12 → Application → Cookies → https://isvoro.com → 展开所有 Path (注意 pmt_refresh 可能在不同 Path 下) → 复制全部 cookie\n` +
+        `\n提示: pmt_access 有效期很短(约15分钟), 必须配合 pmt_refresh 才能长期自动续期。`
       );
     }
 
