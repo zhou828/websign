@@ -115,7 +115,8 @@ class IsvoroHandler extends SiteHandler {
     this.logger.info(`正在登录 Isvoro: ${this.account.email}`);
 
     // 先访问首页获取初始 Cookie (可能包含 CSRF token)
-    await this._request('GET', '/');
+    const homeRes = await this._request('GET', '/');
+    this.logger.info(`首页响应: HTTP ${homeRes.status}, cookies: ${Object.keys(this.cookies).join(', ') || '(无)'}`);
 
     const res = await this._request('POST', '/auth/login', {
       body: {
@@ -124,25 +125,34 @@ class IsvoroHandler extends SiteHandler {
       },
     });
 
+    this.logger.info(`登录响应: HTTP ${res.status}, data: ${typeof res.data === 'string' ? res.data.substring(0, 500) : JSON.stringify(res.data).substring(0, 500)}`);
+    this.logger.info(`登录响应 headers: ${JSON.stringify(res.headers).substring(0, 300)}`);
+    this.logger.info(`当前 cookies: ${JSON.stringify(this.cookies)}`);
+
     if (res.status !== 200) {
-      throw new Error(`登录失败: HTTP ${res.status} ${JSON.stringify(res.data)}`);
+      throw new Error(`登录失败: HTTP ${res.status} ${typeof res.data === 'string' ? res.data.substring(0, 200) : JSON.stringify(res.data).substring(0, 200)}`);
     }
 
     const data = res.data;
-    if (data?.tfa_required) {
+
+    // 响可能是 { success, data: { user, ... } } 或直接返回 { user, ... }
+    const innerData = data?.data || data;
+
+    if (innerData?.tfa_required) {
       throw new Error('该账户开启了二步验证(2FA), 脚本暂不支持自动处理 2FA');
     }
 
-    if (!data?.user) {
-      throw new Error(`登录失败: ${JSON.stringify(data)}`);
+    if (!innerData?.user && !data?.user) {
+      throw new Error(`登录失败, 响应: ${JSON.stringify(data).substring(0, 300)}`);
     }
 
-    this.logger.info(`登录成功: ${data.user.email || this.account.email}`);
+    const user = innerData.user || data.user;
+    this.logger.info(`登录成功: ${user.email || this.account.email}`);
 
-    // 如果有 CSRF cookie, 重新请求以获取有效 token
+    // 尝试获取 CSRF token (如果还没有)
     if (!this.cookies['pmt_csrf']) {
-      // 尝试刷新一次获取 CSRF
       await this._request('GET', '/auth/me');
+      this.logger.info(`CSRF 刷新后 cookies: ${JSON.stringify(this.cookies)}`);
     }
   }
 
