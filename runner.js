@@ -115,7 +115,10 @@ class SiteCheckinRunner {
    */
   async runSite(siteKey, siteConfig) {
     const logger = this.logger.child(siteConfig.label);
-    const accounts = this.parseAccounts(siteConfig.envKey);
+    // 站点可自带账户加载逻辑 (如 Telegram 从配置文件读取)
+    const accounts = typeof siteConfig.loadAccounts === 'function'
+      ? siteConfig.loadAccounts(logger)
+      : this.parseAccounts(siteConfig.envKey);
 
     if (accounts.length === 0) {
       logger.info('未配置账户, 跳过');

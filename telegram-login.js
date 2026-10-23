@@ -16,7 +16,7 @@
  *   2. 输入手机号 (含国家码, 如 +8613800000000)
  *   3. 输入 Telegram 里收到的验证码
  *   4. 如果开了两步验证, 再输入密码
- *   5. 终端会打印一串 session 和一个可直接粘贴的 JSON 配置
+ *   5. 终端会打印 3 个环境变量的值, 以及一份 config/telegram.js 模板
  *
  * session 等于你的登录凭证, 请勿泄露给他人。
  */
@@ -174,23 +174,35 @@ async function main() {
 
   console.log('\n===== 登录成功 =====');
   console.log(`账号: ${name} (@${me.username || '无用户名'})  id: ${me.id}`);
-  console.log('\n----- session (请妥善保存, 不要外泄) -----');
-  console.log(session);
-  console.log('------------------------------------------');
 
-  console.log('\n===== 可直接粘贴到青龙环境变量 TELEGRAM_ACCOUNTS 的配置 =====');
-  console.log(JSON.stringify({
-    api_id: Number(String(apiId).trim()),
-    api_hash: String(apiHash).trim(),
-    session,
+  console.log('\n===== 第 1 步: 到青龙「环境变量」里新建这 3 个变量 =====');
+  console.log('(session 是长字符串, 单独放一个变量, 不参与 JSON 解析, 不会出错)');
+  console.log('');
+  console.log(`TELEGRAM_API_ID=${String(apiId).trim()}`);
+  console.log(`TELEGRAM_API_HASH=${String(apiHash).trim()}`);
+  console.log(`TELEGRAM_SESSION=${session}`);
+  console.log('');
+  console.log('多账号时加后缀: TELEGRAM_API_ID_2 / TELEGRAM_API_HASH_2 / TELEGRAM_SESSION_2');
+
+  console.log('\n===== 第 2 步: 把下面内容保存为 config/telegram.js =====');
+  console.log('(bots 换成你实际要签到的目标; 想放到别处可设环境变量 TELEGRAM_CONFIG 指向它)');
+  console.log('');
+  console.log(`module.exports = [
+  {
+    name: ${JSON.stringify(name)},
+    envSuffix: '',
+    proxy: ${JSON.stringify(proxy ? `socks5://${proxy.ip}:${proxy.port}` : '')},
+    notify: '',
     bots: [
       { username: 'aaa_bot', command: '/checkin' },
       { username: 'bbb_bot', command: '/daily sign' },
+      // { target: '@my_group', command: '/checkin', botUsername: 'aaa_bot' },
+      // { target: '-1001234567890', command: '/qd', botUsername: 'bbb_bot' },
     ],
-  }, null, 2));
-  console.log('\n把 bots 数组里的示例换成你实际要签到的 bot 和命令即可。');
-  console.log('群组签到加 "target": "@群用户名", 并补 "botUsername" 指明响应的 bot。');
-  console.log('想把汇总推到频道, 在配置里加 "notify": "@你的频道"。');
+  },
+];`);
+  console.log('');
+  console.log('提示: 群组签到要加 botUsername 指明响应的 bot; 频道只能用来接收 notify 汇总。');
 
   await client.disconnect();
   rl.close();

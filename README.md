@@ -9,8 +9,11 @@ websign/
 ├── checkin.js              # 主入口
 ├── runner.js               # 签到运行器 (解析环境变量、调度、汇总)
 ├── telegram-login.js       # Telegram 登录助手 (生成 session, 只需跑一次)
+├── config/
+│   └── telegram.example.js # Telegram bot 配置示例 (复制为 telegram.js 使用)
 ├── lib/
-│   └── telegram-proxy.js   # Telegram 代理解析 (签到与登录助手共用)
+│   ├── telegram-config.js  # Telegram 配置加载 (配置文件 + 环境变量)
+│   └── telegram-proxy.js   # Telegram 代理解析
 ├── handlers/
 │   ├── base.js             # 站点处理器基类 (定义接口规范)
 │   ├── isvoro.js           # Isvoro 签到处理器
@@ -28,7 +31,8 @@ websign/
 - `handlers/base.js`
 - `handlers/isvoro.js`
 - `handlers/telegram.js`（要用 Telegram 签到才需要）
-- `lib/telegram-proxy.js`（Telegram 签到需要）
+- `lib/telegram-config.js`、`lib/telegram-proxy.js`（Telegram 签到需要）
+- `config/telegram.example.js`（Telegram 签到需要，复制成 `telegram.js` 后编辑）
 - `telegram-login.js`（只在你自己电脑上跑，不用放青龙）
 
 ### 2. 添加环境变量
@@ -36,7 +40,7 @@ websign/
 | 变量名 | 说明 |
 |--------|------|
 | `ISVORO_ACCOUNTS` | Isvoro 账户配置，JSON 格式 |
-| `TELEGRAM_ACCOUNTS` | Telegram bot 签到配置，JSON 格式（见下文） |
+| `TELEGRAM_API_ID` / `TELEGRAM_API_HASH` / `TELEGRAM_SESSION` | Telegram 登录凭证（见 2.1） |
 
 #### 方式一：Cookie 认证（推荐，绕过验证码）
 
@@ -147,32 +151,76 @@ node telegram-login.js --proxy socks5://127.0.0.1:10808
 
 按提示输入 `api_id`、`api_hash`、手机号（含国家码如 `+8613800000000`）、Telegram 收到的验证码，如果开了两步验证再输密码。
 
-运行结束会打印一串 `session`，**以及一份可直接粘贴的完整 JSON 配置**。
+运行结束会打印 **3 个环境变量** 和一份 **配置文件模板**，照着填即可。
 
 > `session` 等于你的登录凭证，泄露等于账号被登录，切勿外传。
 
-#### 第 4 步：配置环境变量
+#### 第 4 步：配置环境变量（只放 3 个值）
 
-青龙 → 环境变量 → 新建 `TELEGRAM_ACCOUNTS`：
+青龙 → 环境变量 → 新建这 3 个：
 
-```json
-{
-  "api_id": 123456,
-  "api_hash": "0123456789abcdef0123456789abcdef",
-  "session": "1BVtsOK...",
-  "proxy": "socks5://127.0.0.1:10808",
-  "notify": "@my_channel",
-  "bots": [
-    { "username": "aaa_bot", "command": "/checkin" },
-    { "username": "bbb_bot", "command": "/daily sign" },
-    { "username": "ccc_bot", "command": ["/start", "/checkin"], "clickButton": "签到" },
-    { "target": "@my_group", "command": "/checkin", "botUsername": "ddd_bot" },
-    { "target": "-1001234567890", "command": "/qd", "botUsername": "eee_bot" }
-  ]
-}
+| 变量名 | 值 |
+|--------|-----|
+| `TELEGRAM_API_ID` | 一串数字，如 `1234567` |
+| `TELEGRAM_API_HASH` | 32 位字符 |
+| `TELEGRAM_SESSION` | `telegram-login.js` 输出的那串 |
+
+**为什么 session 要单独放一个变量**：session 是 300~400 字符的长串，含 `+` `/` `=` 等字符，塞进 JSON 里很容易因为转义/截断导致解析失败。单独作为一个环境变量后完全不经过 JSON 解析，脚本还会自动去掉粘贴时带入的换行和空格。
+
+多账号用后缀区分：
+
+| 账号 | 环境变量 |
+|------|---------|
+| 第 1 个 | `TELEGRAM_API_ID` / `TELEGRAM_API_HASH` / `TELEGRAM_SESSION` |
+| 第 2 个 | `TELEGRAM_API_ID_2` / `TELEGRAM_API_HASH_2` / `TELEGRAM_SESSION_2` |
+
+#### 第 5 步：配置 bot 列表（配置文件）
+
+bot 列表放在配置文件里，不再塞进环境变量。
+
+```bash
+cp config/telegram.example.js config/telegram.js
 ```
 
-多个 Telegram 账号就写成数组：`[{...}, {...}]`。
+然后编辑 `config/telegram.js`：
+
+```js
+module.exports = [
+  {
+    name: '主账号',              // 日志里显示的名字
+    envSuffix: '',               // 对应不带后缀的环境变量
+    proxy: 'socks5://127.0.0.1:10808',
+    notify: '',                  // 可选: 签到汇总发到频道/群
+    bots: [
+      { username: 'aaa_bot', command: '/checkin' },
+      { username: 'bbb_bot', command: '/daily sign' },
+      { username: 'ccc_bot', command: ['/start', '/checkin'], clickButton: '签到' },
+      { target: '@my_group', command: '/checkin', botUsername: 'ddd_bot' },
+      { target: '-1001234567890', command: '/qd', botUsername: 'eee_bot' },
+    ],
+  },
+];
+```
+
+多账号就在数组里加第二个对象，并给它 `envSuffix: '_2'`：
+
+```js
+[
+  { name: '主账号', envSuffix: '',   bots: [...] },
+  { name: '小号',   envSuffix: '_2', bots: [...] },
+]
+```
+
+**配置文件放哪**（按优先级查找）：
+
+1. 环境变量 `TELEGRAM_CONFIG` 指定的路径
+2. `<项目>/config/telegram.js`
+3. `<项目>/config/telegram.json`
+
+> ⚠️ 青龙里建议把配置放到 `/ql/data/config/telegram.js`，然后设 `TELEGRAM_CONFIG=/ql/data/config/telegram.js`。
+> 因为 `/ql/data/scripts/` 下的文件会被订阅更新覆盖，配置放那里容易丢。
+>
+> `config/telegram.js` 已加入 `.gitignore`，不会推到仓库。
 
 **每个目标支持的字段：**
 
@@ -188,7 +236,7 @@ node telegram-login.js --proxy socks5://127.0.0.1:10808
 | `failKeywords` | 否 | 自定义失败关键词 |
 | `enabled` | 否 | 设 `false` 可临时跳过 |
 
-也可以简写成字符串数组：`"bots": ["aaa_bot:/checkin", "bbb_bot /daily", "https://t.me/mygroup /checkin"]`
+也可以简写成字符串数组：`bots: ['aaa_bot:/checkin', 'bbb_bot /daily', 'https://t.me/mygroup /checkin']`
 
 #### 发到群组 / 频道
 
@@ -214,14 +262,14 @@ node telegram-login.js --proxy socks5://127.0.0.1:10808
 
 账户级可选配置 `notify`，签到结束后自动把汇总发过去（用户账号需在该频道/群有发言权限）：
 
-```json
-"notify": "@my_channel"
+```js
+notify: '@my_channel'
 ```
 
 或只在有失败时推送：
 
-```json
-"notify": { "target": "-1001234567890", "onlyOnFailure": true }
+```js
+notify: { target: '-1001234567890', onlyOnFailure: true }
 ```
 
 推送效果：
@@ -233,7 +281,7 @@ node telegram-login.js --proxy socks5://127.0.0.1:10808
 🕒 2026/10/23 18:50:00
 ```
 
-#### 第 5 步：跑一次看结果
+#### 第 6 步：跑一次看结果
 
 日志会长这样：
 
@@ -259,9 +307,10 @@ GramJS（MTProto 库）**只支持 SOCKS5 和 MTProxy，不支持 HTTP 代理**�
 
 脚本会按这个顺序找代理：
 
-1. 配置里的 `proxy` 字段
-2. 环境变量 `TG_PROXY` / `TELEGRAM_PROXY`
-3. 环境变量 `ALL_PROXY` / `HTTPS_PROXY` / `HTTP_PROXY`（按 SOCKS5 尝试）
+1. 配置文件里的 `proxy` 字段
+2. 环境变量 `TELEGRAM_PROXY`（多账号用 `TELEGRAM_PROXY_2`）
+3. 环境变量 `TG_PROXY` / `TELEGRAM_PROXY`
+4. 环境变量 `ALL_PROXY` / `HTTPS_PROXY` / `HTTP_PROXY`（按 SOCKS5 尝试）
 
 自测代理是否可用：
 
@@ -276,7 +325,11 @@ curl --socks5-hostname 127.0.0.1:10808 https://api.telegram.org
 | 现象 | 原因 / 解决 |
 |------|------------|
 | `缺少 telegram 依赖` | 青龙依赖管理里装 `telegram` |
-| `connect ETIMEDOUT 149.154.167.91` | 直连不通，加 `--proxy socks5://127.0.0.1:10808`（登录）或配置 `"proxy"`（签到） |
+| `未找到 Telegram 配置, 跳过` | 复制 `config/telegram.example.js` 为 `config/telegram.js`，或设 `TELEGRAM_CONFIG` |
+| `缺少环境变量: TELEGRAM_API_ID...` | 青龙环境变量里补上这 3 个值 |
+| `session 格式不正确: Not a valid string` | session 复制不完整或被截断，重跑 `telegram-login.js` |
+| `没有配置任何签到目标 (bots 为空)` | `config/telegram.js` 里的 `bots` 数组还没填 |
+| `connect ETIMEDOUT 149.154.167.91` | 直连不通，加 `--proxy socks5://127.0.0.1:10808`（登录）或配置 `proxy`（签到） |
 | `连接 Telegram 超时` | 没配 SOCKS5 代理，或端口不支持 SOCKS5 |
 | `session 已失效` | 在客户端里被"终止其他设备登录"了，重跑 `telegram-login.js` |
 | `未收到回复` | bot 要求先 `/start`，把 `command` 改成 `["/start","/checkin"]` |

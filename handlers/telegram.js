@@ -51,6 +51,7 @@
 
 const { SiteHandler } = require('./base');
 const { resolveProxy, toGramProxy, describeProxy } = require('../lib/telegram-proxy');
+const { normalizeSession } = require('../lib/telegram-config');
 
 const DEFAULTS = {
   waitSeconds: 8,
@@ -134,20 +135,38 @@ class TelegramHandler extends SiteHandler {
 
     const apiId = Number(this.account.api_id || process.env.TELEGRAM_API_ID);
     const apiHash = this.account.api_hash || process.env.TELEGRAM_API_HASH;
-    const session = this.account.session || process.env.TELEGRAM_SESSION;
+    // session 可能被复制时带入换行/空格, 必须清理后再用
+    const session = normalizeSession(this.account.session || process.env.TELEGRAM_SESSION);
 
     if (!apiId || !apiHash) {
       throw new Error(
         '缺少 api_id / api_hash。\n' +
         '获取方式: 浏览器打开 https://my.telegram.org → 登录 → API development tools → 创建应用\n' +
-        '然后填到环境变量 TELEGRAM_ACCOUNTS 的 api_id / api_hash 字段 (或单独设 TELEGRAM_API_ID / TELEGRAM_API_HASH)'
+        '然后到青龙环境变量里设置 TELEGRAM_API_ID / TELEGRAM_API_HASH\n' +
+        '(多账号用后缀区分: TELEGRAM_API_ID_2 / TELEGRAM_API_HASH_2)'
       );
     }
     if (!session) {
       throw new Error(
         '缺少 session。请先运行 telegram-login.js 生成:\n' +
-        '  node telegram-login.js\n' +
-        '按提示输入手机号、验证码(和两步验证密码), 最后会输出一串 session, 填到配置的 session 字段'
+        '  node telegram-login.js --proxy socks5://127.0.0.1:10808\n' +
+        '按提示输入手机号、验证码(和两步验证密码), 最后会输出 TELEGRAM_SESSION 的值\n' +
+        '把它填到青龙环境变量 TELEGRAM_SESSION 即可'
+      );
+    }
+
+    // 提前校验 session 格式, 避免复制不完整时报出难懂的 "Not a valid string"
+    try {
+      // eslint-disable-next-line no-new
+      new StringSession(session);
+    } catch (e) {
+      throw new Error(
+        `session 格式不正确: ${e.message}\n` +
+        '常见原因:\n' +
+        '  1. 复制不完整 (session 很长, 一般 300~400 个字符, 确认没被截断)\n' +
+        '  2. 粘贴时混入了换行/引号/空格以外的多余字符\n' +
+        '  3. 把 api_hash 或别的值填到了 TELEGRAM_SESSION\n' +
+        '解决: 重新运行 telegram-login.js 生成一份新的 session'
       );
     }
 
@@ -234,7 +253,15 @@ class TelegramHandler extends SiteHandler {
   async doCheckin() {
     const bots = Array.isArray(this.account.bots) ? this.account.bots : [];
     if (!bots.length) {
-      throw new Error('配置里没有 bots 列表。示例: {"username":"xxx_bot","command":"/checkin"}');
+      throw new Error(
+        '没有配置任何签到目标 (bots 为空)。\n' +
+        `请在配置文件里添加 bots: ${this.account._source || 'config/telegram.js'}\n` +
+        '示例:\n' +
+        "  bots: [\n" +
+        "    { username: 'aaa_bot', command: '/checkin' },\n" +
+        "    { target: '@my_group', command: '/checkin', botUsername: 'aaa_bot' },\n" +
+        "  ]"
+      );
     }
 
     const enabled = bots

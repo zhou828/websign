@@ -1,5 +1,8 @@
 node_modules/
 .workbuddy-ai/
 .cookie-store/
+# 个人 Telegram 配置 (含 bot 列表/代理/频道), 不进仓库
+config/telegram.js
+config/telegram.json
 *.log
 .DS_Store
