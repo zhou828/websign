@@ -20,6 +20,8 @@
 const https = require('https');
 const http = require('http');
 const tls = require('tls');
+const fs = require('fs');
+const path = require('path');
 const { URL } = require('url');
 const { SiteHandler } = require('./base');
 
@@ -33,6 +35,10 @@ class IsvoroHandler extends SiteHandler {
     // 优先级: 账户级 proxy > ISVORO_PROXY (可选覆盖) > 系统标准代理环境变量
     this.proxy = this._resolveProxy(account.proxy);
     this.proxyDisabled = false; // 代理不可用时置为 true, 自动降级直连
+    // Cookie 本地缓存: 服务端会在响应中滚动下发新的 pmt_access,
+    // 保存下来可让短效 token 自动续期, 避免每天手动换 Cookie
+    this.cookieStoreDir = process.env.ISVORO_COOKIE_DIR || path.join(__dirname, '..', '.cookie-store');
+    this.cookieStoreFile = '';
 
     // 如果配置了 cookie 字符串, 解析为 cookies 对象
     if (account.cookie) {
@@ -73,23 +79,69 @@ class IsvoroHandler extends SiteHandler {
    * 容错处理: 过滤换行/回车/制表符/多余空格, 兼容带 "Cookie:" 前缀的复制内容
    */
   _parseCookieString(cookieStr) {
+    Object.assign(this.cookies, this._parseCookie(cookieStr));
+  }
+
+  /**
+   * 把 Cookie 字符串解析成对象 (不修改 this.cookies)
+   */
+  _parseCookie(cookieStr) {
+    const out = {};
     // 去掉可能粘贴进来的 "Cookie:" 前缀
     let cleaned = String(cookieStr).replace(/^\s*Cookie\s*:\s*/i, '');
     // 换行/回车/制表符统一转成空格 (浏览器复制多行时会有)
     cleaned = cleaned.replace(/[\r\n\t]+/g, ' ');
 
-    const pairs = cleaned.split(';');
-    for (const pair of pairs) {
+    for (const pair of cleaned.split(';')) {
       const trimmedPair = pair.trim();
       if (!trimmedPair) continue;
       const idx = trimmedPair.indexOf('=');
       if (idx > 0) {
         const key = trimmedPair.substring(0, idx).trim();
         const val = trimmedPair.substring(idx + 1).trim();
-        if (key && val) {
-          this.cookies[key] = val;
-        }
+        if (key && val) out[key] = val;
       }
+    }
+    return out;
+  }
+
+  /** 本地缓存文件名 (按账户区分) */
+  _cookieStorePath() {
+    if (this.cookieStoreFile) return this.cookieStoreFile;
+    const rawKey = this.account.email || this.account.name || 'default';
+    const safeKey = String(rawKey).replace(/[^\w.@-]/g, '_');
+    this.cookieStoreFile = path.join(this.cookieStoreDir, `isvoro-${safeKey}.json`);
+    return this.cookieStoreFile;
+  }
+
+  /** 读取本地缓存的 cookie */
+  _loadStoredCookies() {
+    try {
+      const file = this._cookieStorePath();
+      if (!fs.existsSync(file)) return null;
+      const raw = JSON.parse(fs.readFileSync(file, 'utf8'));
+      if (!raw || !raw.cookies || typeof raw.cookies !== 'object') return null;
+      const keys = Object.keys(raw.cookies);
+      if (!keys.length) return null;
+      return { cookies: raw.cookies, savedAt: raw.savedAt || '(未知时间)' };
+    } catch {
+      return null;
+    }
+  }
+
+  /** 保存当前 cookie 到本地缓存 (用于短效 token 续期) */
+  _saveCookies() {
+    try {
+      const file = this._cookieStorePath();
+      fs.mkdirSync(path.dirname(file), { recursive: true });
+      fs.writeFileSync(
+        file,
+        JSON.stringify({ savedAt: new Date().toISOString(), cookies: this.cookies }, null, 2),
+        'utf8'
+      );
+      this.logger.info(`已保存 Cookie 缓存: ${file}`);
+    } catch (e) {
+      this.logger.warn(`保存 Cookie 缓存失败: ${e.message}`);
     }
   }
 
@@ -279,74 +331,85 @@ class IsvoroHandler extends SiteHandler {
   }
 
   /**
+   * 用当前 this.cookies 验证身份, 成功返回用户对象, 失败返回 null
+   * 流程: pmt_access 直接验证 → 失败则用 pmt_refresh 续期
+   */
+  async _verifyCookies() {
+    // 1. 直接用 pmt_access 验证
+    if (this.cookies['pmt_access']) {
+      const meRes = await this._request('GET', '/auth/me');
+      this.logger.info(`/auth/me 响应: HTTP ${meRes.status}`);
+      if (meRes.status === 200) {
+        const user = meRes.data?.data || meRes.data;
+        if (user && (user.id || user.email || user.username)) return user;
+      }
+    }
+
+    // 2. pmt_access 无效, 用 pmt_refresh 换新
+    if (this.cookies['pmt_refresh']) {
+      this.logger.info('尝试用 pmt_refresh 刷新 access token...');
+      const refreshRes = await this._request('POST', '/auth/refresh');
+      this.logger.info(`刷新响应: HTTP ${refreshRes.status}, data: ${JSON.stringify(refreshRes.data).substring(0, 200)}`);
+
+      if (refreshRes.status === 200) {
+        const meRes = await this._request('GET', '/auth/me');
+        if (meRes.status === 200) {
+          const user = meRes.data?.data || meRes.data;
+          if (user && (user.id || user.email || user.username)) return user;
+        }
+      }
+    }
+
+    return null;
+  }
+
+  /**
    * 登录 / 认证
    * 优先使用 Cookie 方式, 其次尝试密码登录
    */
   async login() {
     // ── 方式一: Cookie 认证 (推荐) ──
+    // 依次尝试: 环境变量里的 cookie → 上次运行缓存下来的 cookie
+    const stored = this._loadStoredCookies();
+    const sources = [];
     if (this.account.cookie) {
-      this.logger.info('使用 Cookie 方式认证');
-      const cookieKeys = Object.keys(this.cookies);
-      this.logger.info(`已解析 Cookie 字段: ${cookieKeys.join(', ') || '(空)'}`);
+      sources.push({ label: '环境变量', cookies: this._parseCookie(this.account.cookie) });
+    }
+    if (stored) {
+      sources.push({ label: `本地缓存 (保存于 ${stored.savedAt})`, cookies: stored.cookies });
+    }
 
-      const hasAccess = !!this.cookies['pmt_access'];
-      const hasRefresh = !!this.cookies['pmt_refresh'];
-      const hasCsrf = !!this.cookies['pmt_csrf'];
+    if (sources.length) {
+      const errors = [];
 
-      if (!hasAccess && !hasRefresh) {
-        throw new Error(
-          '缺少关键认证 Cookie (pmt_access / pmt_refresh)。\n' +
-          '当前只有: ' + (cookieKeys.join(', ') || '(空)') + '\n' +
-          '请重新获取完整 Cookie: 浏览器登录 isvoro.com → F12 → Application → Cookies → 复制 pmt_access、pmt_refresh、pmt_csrf 三个值'
-        );
-      }
+      for (const src of sources) {
+        const keys = Object.keys(src.cookies);
+        this.logger.info(`使用 Cookie 认证, 来源: ${src.label}`);
+        this.logger.info(`已解析 Cookie 字段: ${keys.join(', ') || '(空)'}`);
 
-      // 第一步: 直接用 pmt_access 验证
-      if (hasAccess) {
-        const meRes = await this._request('GET', '/auth/me');
-        this.logger.info(`/auth/me 响应: HTTP ${meRes.status}, data: ${JSON.stringify(meRes.data).substring(0, 300)}`);
-        if (meRes.status === 200) {
-          const user = meRes.data?.data || meRes.data;
-          if (user && (user.id || user.email || user.username)) {
+        if (!src.cookies['pmt_access'] && !src.cookies['pmt_refresh']) {
+          errors.push(`${src.label}: 缺少 pmt_access / pmt_refresh (只有 ${keys.join(', ') || '空'})`);
+          continue;
+        }
+
+        this.cookies = { ...src.cookies };
+        try {
+          const user = await this._verifyCookies();
+          if (user) {
             this.logger.info(`Cookie 认证成功: ${user.email || user.username || '已登录用户'}`);
+            this._saveCookies(); // 保存滚动下发的新 token, 下次直接复用
             return;
           }
+          errors.push(`${src.label}: 令牌无效或已过期`);
+        } catch (e) {
+          errors.push(`${src.label}: ${e.message}`);
         }
       }
-
-      // 第二步: pmt_access 无效/缺失, 用 pmt_refresh 刷新
-      if (hasRefresh) {
-        this.logger.info('尝试用 pmt_refresh 刷新 access token...');
-        const refreshRes = await this._request('POST', '/auth/refresh');
-        this.logger.info(`刷新响应: HTTP ${refreshRes.status}, data: ${JSON.stringify(refreshRes.data).substring(0, 300)}`);
-        this.logger.info(`刷新后 cookies: ${Object.keys(this.cookies).join(', ') || '(空)'}`);
-
-        if (refreshRes.status === 200) {
-          const meRes = await this._request('GET', '/auth/me');
-          this.logger.info(`刷新后 /auth/me: HTTP ${meRes.status}, data: ${JSON.stringify(meRes.data).substring(0, 300)}`);
-          if (meRes.status === 200) {
-            const user = meRes.data?.data || meRes.data;
-            if (user && (user.id || user.email || user.username)) {
-              this.logger.info(`Cookie 认证成功: ${user.email || user.username || '已登录用户'}`);
-              return;
-            }
-          }
-        }
-      }
-
-      // 组装失败原因
-      const missing = [];
-      if (!hasRefresh) missing.push('pmt_refresh (刷新令牌, 缺它无法自动续期)');
-      if (!hasAccess) missing.push('pmt_access (访问令牌)');
-      if (!hasCsrf) missing.push('pmt_csrf (CSRF 令牌)');
 
       throw new Error(
-        `Cookie 认证失败。当前解析到的字段: [${cookieKeys.join(', ') || '空'}]\n` +
-        (missing.length ? `缺失: ${missing.join('、')}\n` : '') +
-        `\n正确获取方式 (任选其一):\n` +
-        `【方法A - 推荐】浏览器登录 isvoro.com → F12 → Network 面板 → 筛选 auth/refresh → 点开该请求 → Request Headers 里的 Cookie 整行复制\n` +
-        `【方法B】F12 → Application → Cookies → https://isvoro.com → 展开所有 Path (注意 pmt_refresh 可能在不同 Path 下) → 复制全部 cookie\n` +
-        `\n提示: pmt_access 有效期很短(约15分钟), 必须配合 pmt_refresh 才能长期自动续期。`
+        `Cookie 认证失败 (已尝试 ${sources.length} 个来源)\n` +
+        errors.map(x => `- ${x}`).join('\n') + '\n' +
+        '\n解决办法: 浏览器登录 isvoro.com → F12 → Network 面板 → 筛选 auth/refresh → 点开该请求 → 复制 Request Headers 里 Cookie 整行 → 更新青龙环境变量 ISVORO_ACCOUNTS'
       );
     }
 
@@ -434,13 +497,32 @@ class IsvoroHandler extends SiteHandler {
 
     const data = res.data?.data || res.data;
 
-    if (data?.points !== undefined) {
-      this.logger.info(`✅ 签到成功! 获得积分: ${data.points}, 累计: ${data.total_points || '未知'}`);
+    // 签到后查一次余额, 拿到累计积分 (签到响应里只有本次获得的积分)
+    let balance = data?.total_points ?? data?.balance ?? data?.points_balance ?? data?.total;
+    if (balance === undefined) {
+      try {
+        const pRes = await this._request('GET', '/points');
+        if (pRes.status === 200) {
+          const p = pRes.data?.data || pRes.data;
+          balance = p?.points ?? p?.balance ?? p?.total_points ?? p?.total ?? p?.current;
+        }
+      } catch (e) {
+        this.logger.warn(`查询积分余额失败: ${e.message}`);
+      }
+    }
+
+    const gained = data?.points ?? data?.reward ?? data?.amount ?? data?.gain;
+
+    if (gained !== undefined) {
+      this.logger.info(`✅ 签到成功! 获得积分: ${gained}${balance !== undefined ? `, 当前积分: ${balance}` : ''}`);
     } else {
       this.logger.info(`✅ 签到成功! 返回: ${JSON.stringify(data).substring(0, 200)}`);
     }
 
-    return data;
+    // 签到过程可能滚动下发新 token, 一并存下来
+    this._saveCookies();
+
+    return { ...data, gained, balance };
   }
 }
 

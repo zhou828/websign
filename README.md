@@ -116,10 +116,23 @@ Isvoro 走 Cloudflare，国内服务器访问可能不稳定（`ETIMEDOUT`）。
 
 ## Cookie 过期怎么办
 
-- **有 `pmt_refresh`**：脚本会自动调用 `/auth/refresh` 续期，通常长期可用
-- **只有 `pmt_access`**：15 分钟后失效，需要重新获取 Cookie
+`pmt_access` 只有约 15 分钟有效期，但服务端在每次请求的响应头里会**滚动下发新的 token**。脚本会把这些新 token 保存到本地缓存：
 
-如果日志提示缺失 `pmt_refresh`，请按上面的「方法 A」重新获取。
+```
+.cookie-store/isvoro-<账户>.json
+```
+
+下次运行时按这个顺序尝试：
+
+1. 环境变量里的 `ISVORO_ACCOUNTS`
+2. 上次运行保存的本地缓存
+
+所以正常情况下，只要第一次能跑通，之后就能自动续期，不用天天手动换 Cookie。
+
+如果两个来源都失效（日志会列出每个来源的失败原因），按上面的「方法 A」重新取一次 Cookie 填到环境变量即可，脚本会自动覆盖旧缓存。
+
+> `.cookie-store/` 已加入 `.gitignore`，不会被提交到仓库。
+> 想换个位置可以设 `ISVORO_COOKIE_DIR=/ql/data/config/cookie`。
 
 ## 新增其他网站
 
@@ -147,4 +160,5 @@ Isvoro 走 Cloudflare，国内服务器访问可能不稳定（`ETIMEDOUT`）。
 | 当前用户 | GET | `/api/v1/auth/me` | 验证 cookie 是否有效 |
 | 签到状态 | GET | `/api/v1/points/checkin/status` | 查询今日是否已签到 |
 | 签到 | POST | `/api/v1/points/checkin` | 执行签到 |
+| 积分余额 | GET | `/api/v1/points` | 查询当前积分（签到后用于显示累计） |
 | CSRF | - | Cookie `pmt_csrf` → 请求头 `X-CSRF-Token` | POST 请求需要 |
