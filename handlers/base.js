@@ -63,6 +63,12 @@ class SiteHandler {
     // 3. 执行签到
     const result = await this.doCheckin();
 
+    // 站点在 doCheckin 里发现"今天已经签过了" (例如服务端返回 ALREADY_CHECKED_IN),
+    // 这属于正常情况, 不能算失败, 否则整个任务会被标成失败
+    if (result && result.alreadyChecked) {
+      return { success: true, skipped: true, status, result };
+    }
+
     return { success: true, skipped: false, status, result };
   }
 }

@@ -310,7 +310,15 @@ class TelegramHandler extends SiteHandler {
     }
     this.logger.info(`Telegram 签到完成: ${summary}`);
 
-    return { total: enabled.length, ok, skipped, failed, results };
+    return {
+      total: enabled.length,
+      ok,
+      skipped,
+      failed,
+      results,
+      // 全部都是"今天已签过" → 上层记为已签到, 不算新签到成功
+      alreadyChecked: ok === 0 && failed === 0 && skipped > 0,
+    };
   }
 
   /**

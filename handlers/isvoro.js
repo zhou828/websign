@@ -25,6 +25,13 @@ const path = require('path');
 const { URL } = require('url');
 const { SiteHandler } = require('./base');
 
+/**
+ * 服务端"今天已经签过"的响应特征
+ * 实测: POST /points/checkin 返回 HTTP 400 { code: -1, message: "POINT_ALREADY_CHECKED_IN" }
+ * 这是正常情况, 不能当成签到失败
+ */
+const ALREADY_CHECKED_RE = /ALREADY[_ ]?CHECK|已签到|已经签到|重复签到|今日已签|already\s*check/i;
+
 class IsvoroHandler extends SiteHandler {
   constructor(account, logger) {
     super(account, logger);
@@ -109,7 +116,8 @@ class IsvoroHandler extends SiteHandler {
   _cookieStorePath() {
     if (this.cookieStoreFile) return this.cookieStoreFile;
     const rawKey = this.account.email || this.account.name || 'default';
-    const safeKey = String(rawKey).replace(/[^\w.@-]/g, '_');
+    // 保留中文: 之前中文名会被全部替换成 _, "主号" 和 "小号" 会撞成同一个文件
+    const safeKey = String(rawKey).replace(/[^\w.@\u4e00-\u9fa5-]/g, '_');
     this.cookieStoreFile = path.join(this.cookieStoreDir, `isvoro-${safeKey}.json`);
     return this.cookieStoreFile;
   }
@@ -474,7 +482,9 @@ class IsvoroHandler extends SiteHandler {
   async checkinStatus() {
     this.logger.info('查询签到状态...');
 
-    const res = await this._request('GET', '/points/checkin/status');
+    // 状态查询只是辅助判断, 失败也能靠签到接口的返回兜底,
+    // 所以单独给较短超时且不重试, 避免网络差时白等 30s×3
+    const res = await this._request('GET', '/points/checkin/status', { timeout: 15000, retries: 0 });
 
     if (res.status !== 200) {
       throw new Error(`查询签到状态失败: HTTP ${res.status} ${JSON.stringify(res.data).substring(0, 200)}`);
@@ -498,7 +508,16 @@ class IsvoroHandler extends SiteHandler {
     const res = await this._request('POST', '/points/checkin');
 
     if (res.status !== 200) {
-      const errMsg = res.data?.message || JSON.stringify(res.data).substring(0, 200);
+      const code = res.data?.code !== undefined ? String(res.data.code) : '';
+      const errMsg = res.data?.message || res.data?.error || JSON.stringify(res.data).substring(0, 200);
+
+      // 今天已经签过 → 正常情况, 返回 alreadyChecked 让上层记为"已签到"
+      if (ALREADY_CHECKED_RE.test(`${errMsg} ${code}`)) {
+        this.logger.info(`✅ 今日已签到 (${errMsg})`);
+        this._saveCookies();
+        return { alreadyChecked: true, code, message: errMsg };
+      }
+
       throw new Error(`签到失败: HTTP ${res.status} ${errMsg}`);
     }
 

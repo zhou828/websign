@@ -133,6 +133,7 @@ class SiteCheckinRunner {
 
     const results = [];
     let successCount = 0;
+    let skipCount = 0;
     let failCount = 0;
 
     for (let i = 0; i < accounts.length; i++) {
@@ -149,10 +150,14 @@ class SiteCheckinRunner {
         results.push({
           email: accLabel,
           success: true,
-          skipped: result.skipped,
+          skipped: !!result.skipped,
           message: result.skipped ? '今日已签到' : '签到成功',
         });
-        successCount++;
+        if (result.skipped) {
+          skipCount++;
+        } else {
+          successCount++;
+        }
       } catch (err) {
         // 详细错误输出, 便于排查 (err.message 可能为空)
         const errMsg = err && err.message ? err.message : String(err);
@@ -171,8 +176,19 @@ class SiteCheckinRunner {
       }
     }
 
-    logger.info(`完成: 成功 ${successCount}, 失败 ${failCount}`);
-    return { site: siteConfig.label, total: accounts.length, success: successCount, fail: failCount, results };
+    logger.info(
+      `完成: 成功 ${successCount}` +
+      (skipCount > 0 ? `, 已签到 ${skipCount}` : '') +
+      `, 失败 ${failCount}`
+    );
+    return {
+      site: siteConfig.label,
+      total: accounts.length,
+      success: successCount,
+      skip: skipCount,
+      fail: failCount,
+      results,
+    };
   }
 
   /**
@@ -192,14 +208,23 @@ class SiteCheckinRunner {
     // 汇总
     this.logger.info('\n===== 签到汇总 =====');
     let totalSuccess = 0;
+    let totalSkip = 0;
     let totalFail = 0;
     for (const r of allResults) {
-      this.logger.info(`${r.site}: 成功 ${r.success}/${r.total}` +
-        (r.fail > 0 ? `, 失败 ${r.fail}` : ''));
+      this.logger.info(
+        `${r.site}: 成功 ${r.success}/${r.total}` +
+        (r.skip > 0 ? `, 已签到 ${r.skip}` : '') +
+        (r.fail > 0 ? `, 失败 ${r.fail}` : '')
+      );
       totalSuccess += r.success;
+      totalSkip += r.skip || 0;
       totalFail += r.fail;
     }
-    this.logger.info(`总计: 成功 ${totalSuccess}, 失败 ${totalFail}`);
+    this.logger.info(
+      `总计: 成功 ${totalSuccess}` +
+      (totalSkip > 0 ? `, 已签到 ${totalSkip}` : '') +
+      `, 失败 ${totalFail}`
+    );
 
     // 如果有失败, 退出码非零 (青龙面板可以识别)
     if (totalFail > 0) {
