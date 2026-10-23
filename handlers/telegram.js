@@ -142,7 +142,7 @@ class TelegramHandler extends SiteHandler {
       throw new Error(
         '缺少 api_id / api_hash。\n' +
         '获取方式: 浏览器打开 https://my.telegram.org → 登录 → API development tools → 创建应用\n' +
-        '然后把 api_id / api_hash 填到 config/config.js 里该账号的对应字段\n' +
+        '然后把 api_id / api_hash 填到 config/config.yaml 里该账号的对应字段\n' +
         '(多账号就是 telegram 数组里多个对象, 各自填自己的)'
       );
     }
@@ -151,7 +151,7 @@ class TelegramHandler extends SiteHandler {
         '缺少 session。请先运行 telegram-login.js 生成:\n' +
         '  node telegram-login.js --proxy socks5://127.0.0.1:10808\n' +
         '按提示输入手机号、验证码(和两步验证密码), 最后会打印一段配置块\n' +
-        '把里面的 session 值填到 config/config.js 里即可'
+        '把里面的 session 值填到 config/config.yaml 里即可'
       );
     }
 

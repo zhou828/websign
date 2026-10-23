@@ -16,9 +16,9 @@
  *   2. 输入手机号 (含国家码, 如 +8613800000000)
  *   3. 输入 Telegram 里收到的验证码
  *   4. 如果开了两步验证, 再输入密码
- *   5. 终端会打印一段配置块, 直接粘到 config/config.js 的 telegram 数组里
+ *   5. 终端会打印一段 YAML 配置块, 直接粘到 config/config.yaml 的 telegram 列表里
  *
- * 配置只需要写在 config/config.js 里, 不需要环境变量。
+ * 配置只需要写在 config/config.yaml 里, 不需要环境变量。
  *
  * session 等于你的登录凭证, 请勿泄露给他人。
  */
@@ -43,6 +43,11 @@ function getArgValue(name) {
   const prefixed = process.argv.find(a => a.startsWith(`${name}=`));
   if (prefixed) return prefixed.split('=').slice(1).join('=');
   return '';
+}
+
+/** 输出成 YAML 单引号字符串 (单引号内的 ' 要写成 '') */
+function yamlStr(v) {
+  return `'${String(v == null ? '' : v).replace(/'/g, "''")}'`;
 }
 
 function createAsk() {
@@ -177,23 +182,23 @@ async function main() {
   console.log('\n===== 登录成功 =====');
   console.log(`账号: ${name} (@${me.username || '无用户名'})  id: ${me.id}`);
 
-  console.log('\n===== 把下面这段加到 config/config.js 的 telegram 数组里 =====');
-  console.log('(没有 config/config.js 的话, 先复制 config/config.example.js 改个名)');
+  console.log('\n===== 把下面这段加到 config/config.yaml 的 telegram 列表里 =====');
+  console.log('(还没有配置文件的话: cp config/config.example.yaml config/config.yaml)');
   console.log('');
-  console.log(`    {
-      name: ${JSON.stringify(name)},
-      api_id: ${String(apiId).trim()},
-      api_hash: ${JSON.stringify(String(apiHash).trim())},
-      session: ${JSON.stringify(session)},
-      proxy: ${JSON.stringify(proxy ? `socks5://${proxy.ip}:${proxy.port}` : '')},
-      notify: '',
-      bots: [
-        { username: 'aaa_bot', command: '/checkin' },
-        { username: 'bbb_bot', command: '/daily sign' },
-        // { target: '@my_group', command: '/checkin', botUsername: 'aaa_bot' },
-        // { target: '-1001234567890', command: '/qd', botUsername: 'bbb_bot' },
-      ],
-    },`);
+  console.log(`  - name: ${yamlStr(name)}
+    api_id: ${String(apiId).trim()}
+    api_hash: ${yamlStr(String(apiHash).trim())}
+    session: ${yamlStr(session)}
+    proxy: ${yamlStr(proxy ? `socks5://${proxy.ip}:${proxy.port}` : '')}
+    notify: ''
+    bots:
+      - username: aaa_bot
+        command: /checkin
+      - username: bbb_bot
+        command: /daily sign
+      # - target: '@my_group'
+      #   command: /checkin
+      #   botUsername: aaa_bot`);
   console.log('');
   console.log('提示: 群组签到要加 botUsername 指明响应的 bot; 频道只能用来接收 notify 汇总。');
 

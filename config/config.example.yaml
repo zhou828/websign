@@ -1,0 +1,174 @@
+# ════════════════════════════════════════════════════════════════════
+#  多站点自动签到 — 配置文件
+# ════════════════════════════════════════════════════════════════════
+#
+#  用法
+#    1. 复制本文件为 config/config.yaml
+#         cp config/config.example.yaml config/config.yaml
+#    2. 按下面的注释填写; 不需要的站点整段删掉即可
+#    3. 青龙里跑一次 checkin.js, 看日志确认
+#
+#  语法要点 (YAML 缩进敏感)
+#    · 缩进只能用空格, 不能混用 Tab; 建议 2 个空格一级
+#    · 冒号后面必须有 1 个空格:   name: 主号
+#    · 值里含 ; = : # 或行首空格时, 用单引号包起来: 'pmt_access=xx; pmt_csrf=yy'
+#    · 行首 # 或空白后的 # 是注释, 引号里的 # 不算
+#
+#  安全提示
+#    · 本文件含账号凭据, 已加入 .gitignore, 不会提交到仓库
+#    · 青龙里建议放到 /ql/data/config/config.yaml, 再设环境变量
+#      CONFIG_FILE=/ql/data/config/config.yaml
+#      否则更新订阅脚本时, /ql/data/scripts/ 下的配置可能被覆盖
+# ════════════════════════════════════════════════════════════════════
+
+
+# ════════════════════════════════════════════════════════════════════
+#  Isvoro 网站签到
+#  不需要就整段删掉 (包括 isvoro: 这一行)
+# ════════════════════════════════════════════════════════════════════
+isvoro:
+
+  # 账号列表; 有几个账号就写几项 (每一项以 "- " 开头)
+  accounts:
+
+    # ── 第 1 个账号 ──────────────────────────────────────────────
+
+    # 日志里显示的名字, 随便起, 只用于区分账号
+    - name: 主号
+
+      # 【必填】Cookie 认证 (推荐, 唯一稳定方式)
+      # 获取步骤:
+      #   浏览器登录 isvoro.com → F12 → Network 面板 → 筛选 auth/refresh
+      #   → 点开该请求 → 复制 Request Headers 里 Cookie 的整行
+      # 必须同时包含 pmt_access / pmt_refresh / pmt_csrf 三个
+      # 整行原样粘进单引号里即可, 不需要转义
+      cookie: 'pmt_access=xxx; pmt_refresh=yyy; pmt_csrf=zzz'
+
+      # 【可选】该账号单独走某个代理
+      # 不填则自动复用青龙环境里已有的代理 (HTTPS_PROXY / ALL_PROXY 等)
+      # 代理连不上时会自动降级为直连
+      # proxy: 'http://127.0.0.1:7890'
+
+    # ── 第 2 个账号 (把下面 3 行的 # 去掉即可启用) ────────────────
+    # - name: 小号
+    #   cookie: 'pmt_access=aaa; pmt_refresh=bbb; pmt_csrf=ccc'
+
+    # ── 密码登录 (不推荐) ────────────────────────────────────────
+    # 登录接口有 hCaptcha 验证码, 密码方式大概率失败, 优先用上面的 Cookie
+    # - name: 密码号
+    #   email: your@email.com
+    #   password: 'yourpassword'
+
+
+# ════════════════════════════════════════════════════════════════════
+#  Telegram bot / 群组签到
+#  不需要就整段删掉
+#
+#  原理: Telegram 禁止 bot 之间互相通信, 所以脚本用你自己的账号身份
+#        (MTProto 协议) 去给目标 bot 发签到命令。
+#        需要 api_id / api_hash / session 三个凭证, 由 telegram-login.js 生成。
+# ════════════════════════════════════════════════════════════════════
+telegram:
+
+  # ── 第 1 个 Telegram 账号 ──────────────────────────────────────
+  # name: 日志里显示的名字, 随便起
+  - name: 主账号
+
+    # 【必填】应用凭证, 纯数字
+    # 获取: https://my.telegram.org → 登录 → API development tools → 创建应用
+    # 一个账号创建一次即可, 换 api_id 会让旧 session 失效
+    api_id: 1234567
+
+    # 【必填】应用密钥, 32 位字符
+    # 和 api_id 在同一个页面, 别和 session 搞混
+    api_hash: '0123456789abcdef0123456789abcdef'
+
+    # 【必填】登录凭证, 由 telegram-login.js 生成
+    # 长串直接放单引号里, 不需要转义; 粘贴时带入的换行/空格会被自动清掉
+    # session 等于账号登录权限, 泄露等于账号被登录, 切勿外传
+    session: '1BVtsOK...'
+
+    # 【可选】SOCKS5 代理
+    # GramJS 只支持 SOCKS5 / MTProxy, 不支持 HTTP 代理
+    # 不填则自动读环境变量 TG_PROXY / TELEGRAM_PROXY / ALL_PROXY / HTTPS_PROXY
+    # 常见端口: v2rayN 10808, Clash 7890 (混合端口也支持 SOCKS5)
+    proxy: 'socks5://127.0.0.1:10808'
+
+    # 【可选】签到结束后把汇总发到频道/群
+    # 填用户名或数字 id; 留空则不发。你的账号需要在该频道/群有发言权限
+    # notify: '@my_channel'
+
+    # 【可选】只在有失败时才推送汇总 (把上面那行注释掉, 用这两行)
+    # notify:
+    #   target: '-1001234567890'
+    #   onlyOnFailure: true
+
+    # 【必填】签到目标列表, 每个 bot / 群一条
+    bots:
+
+      # ── 私聊 bot 签到 (最常见) ──
+      # username: bot 的用户名, 不带 @ 也行
+      # command:  要发送的命令, 必须和该 bot 要求的完全一致
+      - username: aaa_bot
+        command: /checkin
+
+      # ── 第二个 bot, 命令不一样 ──
+      - username: bbb_bot
+        command: /daily sign
+
+        # 【可选】等待回复的秒数, 默认 8
+        # 有些 bot 响应慢, 或者要跑一会儿才回, 可以调大
+        waitSeconds: 10
+
+      # ── 按钮式签到: bot 回复带内联按钮, 自动点文字匹配的按钮 ──
+      # - username: ccc_bot
+      #   command: /start
+      #   clickButton: '签到'
+
+      # ── 群组签到: 群里 @bot 或 bot 自动响应 ──
+      # target:      群用户名或数字 id
+      # botUsername: 必填! 指明由哪个 bot 响应, 用于过滤群里其他人的消息
+      # - target: '@my_group'
+      #   command: /checkin
+      #   botUsername: ddd_bot
+
+      # ── 私有群/频道: 用 -100 开头的数字 id ──
+      # 取法: web.telegram.org 进群, 地址栏 #-1001234567890 那串
+      # 也可以直接粘 https://t.me/c/1234567890/5 这种链接, 脚本会自动转换
+      # 注意: 频道里 bot 不会响应命令, 频道只适合用来接收 notify 汇总
+      # - target: '-1001234567890'
+      #   command: /qd
+      #   botUsername: eee_bot
+
+      # ── 临时跳过某一条 ──
+      # enabled: false  # 设为 false 就不执行这一条
+      # - username: fff_bot
+      #   command: /checkin
+      #   enabled: false
+
+  # ── 第 2 个 Telegram 账号 (每个账号有自己的凭证和 bot 列表) ────
+  # - name: 小号
+  #   api_id: 7654321
+  #   api_hash: '...'
+  #   session: '1BVtsOK...'
+  #   bots:
+  #     - username: aaa_bot
+  #       command: /checkin
+
+# ════════════════════════════════════════════════════════════════════
+#  单个签到目标的全部可用字段 (供参考)
+# ════════════════════════════════════════════════════════════════════
+#
+#  username          私聊 bot 时用, bot 的用户名
+#  target            群/频道用, 支持 @用户名 / t.me 链接 / -100 数字 id
+#  command           要发的命令, 字符串; 多条可写成 ['/start', '/checkin']
+#  botUsername       群/频道里必填, 指明哪个 bot 会回复
+#  clickButton       回复带内联按钮时, 自动点文字匹配的按钮
+#  waitSeconds       等回复秒数, 默认 8
+#  successKeywords   自定义成功关键词 (数组), 覆盖默认判断
+#  skipKeywords      自定义"今日已签到"关键词 (数组)
+#  failKeywords      自定义失败关键词 (数组)
+#  enabled           设 false 临时跳过这条
+#
+#  简写: bots 也可以写成字符串数组, 如
+#    bots: ['aaa_bot:/checkin', 'bbb_bot /daily']

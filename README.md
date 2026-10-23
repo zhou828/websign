@@ -6,23 +6,24 @@
 
 ```
 websign/
-├── checkin.js              # 主入口 (站点注册表)
-├── runner.js               # 签到运行器 (调度、汇总)
-├── telegram-login.js       # Telegram 登录助手 (生成 session, 只需跑一次)
+├── checkin.js               # 主入口 (站点注册表)
+├── runner.js                # 签到运行器 (调度、汇总)
+├── telegram-login.js        # Telegram 登录助手 (生成 session, 只需跑一次)
 ├── config/
-│   └── config.example.js   # 统一配置模板 (复制为 config.js 使用)
+│   └── config.example.yaml  # 统一配置模板 (复制为 config.yaml 使用)
 ├── lib/
-│   ├── config.js           # 统一配置加载 (所有站点共用)
-│   ├── telegram-config.js  # Telegram 配置加载
-│   └── telegram-proxy.js   # Telegram 代理解析
+│   ├── config.js            # 统一配置加载 (所有站点共用)
+│   ├── yaml.js              # 轻量 YAML 解析器 (零依赖)
+│   ├── telegram-config.js   # Telegram 配置加载
+│   └── telegram-proxy.js    # Telegram 代理解析
 ├── handlers/
-│   ├── base.js             # 站点处理器基类 (定义接口规范)
-│   ├── isvoro.js           # Isvoro 签到处理器
-│   ├── telegram.js         # Telegram bot 签到处理器
-│   └── example.js          # 示例模板 (新增网站时复制修改)
+│   ├── base.js              # 站点处理器基类 (定义接口规范)
+│   ├── isvoro.js            # Isvoro 签到处理器
+│   ├── telegram.js          # Telegram bot 签到处理器
+│   └── example.js           # 示例模板 (新增网站时复制修改)
 ```
 
-> 只有 `config/config.example.js` 进仓库；你自己填的 `config/config.js` 已被 `.gitignore` 忽略。
+> 只有 `config/config.example.yaml` 进仓库；你自己填的 `config/config.yaml` 已被 `.gitignore` 忽略。
 
 ## 青龙面板配置
 
@@ -35,60 +36,70 @@ websign/
 - `handlers/base.js`
 - `handlers/isvoro.js`
 - `handlers/telegram.js`（要用 Telegram 签到才需要）
-- `lib/config.js`、`lib/telegram-config.js`、`lib/telegram-proxy.js`
-- `config/config.example.js`（配置模板，复制成 `config.js` 后编辑）
+- `lib/config.js`、`lib/yaml.js`、`lib/telegram-config.js`、`lib/telegram-proxy.js`
+- `config/config.example.yaml`（配置模板，复制成 `config.yaml` 后编辑）
 - `telegram-login.js`（只在你自己电脑上跑，不用放青龙）
 
 ### 2. 创建配置文件
 
-**所有配置都在一个文件里，不需要配任何环境变量。**
+**所有配置都在 `config/config.yaml` 一个文件里，不需要配任何环境变量。**
 
 ```bash
-cp config/config.example.js config/config.js
+cp config/config.example.yaml config/config.yaml
 ```
 
-然后编辑 `config/config.js`：
+模板里每一项都写了注释，照着填即可。最简可用版本：
 
-```js
-module.exports = {
-  // Isvoro 签到
-  isvoro: {
-    accounts: [
-      { name: '主号', cookie: 'pmt_access=xxx; pmt_refresh=yyy; pmt_csrf=zzz' },
-    ],
-  },
+```yaml
+isvoro:
+  accounts:
+    - name: 主号
+      cookie: 'pmt_access=xxx; pmt_refresh=yyy; pmt_csrf=zzz'
 
-  // Telegram 签到
-  telegram: [
-    {
-      name: '主账号',
-      api_id: 1234567,
-      api_hash: '0123456789abcdef0123456789abcdef',
-      session: '1BVtsOK...',
-      proxy: 'socks5://127.0.0.1:10808',
-      notify: '',
-      bots: [
-        { username: 'aaa_bot', command: '/checkin' },
-      ],
-    },
-  ],
-};
+telegram:
+  - name: 主账号
+    api_id: 1234567
+    api_hash: '0123456789abcdef0123456789abcdef'
+    session: '1BVtsOK...'
+    proxy: 'socks5://127.0.0.1:10808'
+    bots:
+      - username: aaa_bot
+        command: /checkin
 ```
 
 不需要的站点整段删掉即可，脚本会自动跳过。
 
-**配置文件放哪**（按优先级查找）：
+**YAML 三个容易踩的坑：**
+
+| 坑 | 错误写法 | 正确写法 |
+|---|---|---|
+| 冒号后缺空格 | `name:主号` | `name: 主号` |
+| 用了 Tab 缩进 | Tab | 2 个空格 |
+| 值里有 `;` `=` `:` `#` 没加引号 | `cookie: pmt_access=a; x` | `cookie: 'pmt_access=a; x'` |
+
+写错了不会静默跳过，会直接告诉你第几行错在哪：
+
+```
+❌ 配置文件有误:
+读取配置文件失败: config/config.yaml
+  第 12 行: 缩进不一致 (同级列表项应为 4 个空格, 这一行是 5 个)
+```
+
+**配置文件放哪**（按优先级查找，命中即用）：
 
 1. 环境变量 `CONFIG_FILE` 指定的路径
-2. `<项目>/config/config.js`
-3. `<项目>/config/config.json`
+2. `<项目>/config/config.yaml`
+3. `<项目>/config/config.yml`
+4. `config/config.json` / `config/config.js`（兼容旧版，不再推荐）
 
-> ⚠️ 青龙里建议把配置放到 `/ql/data/config/config.js`，再设 `CONFIG_FILE=/ql/data/config/config.js`。
+> ⚠️ 青龙里建议把配置放到 `/ql/data/config/config.yaml`，再设 `CONFIG_FILE=/ql/data/config/config.yaml`。
 > `/ql/data/scripts/` 下的文件会被订阅更新覆盖，配置放那里容易丢。
 >
-> `config/config.js` 已加入 `.gitignore`，不会推到仓库。
+> `config/config.yaml` 已加入 `.gitignore`，不会推到仓库。
 
 > 环境变量（`ISVORO_ACCOUNTS`、`TELEGRAM_ACCOUNTS`、`TELEGRAM_API_ID` 等）仍可用作兼容回退，但**配置文件优先级更高**。新部署直接用配置文件即可。
+>
+> YAML 解析优先用已安装的 `js-yaml` / `yaml` 包，青龙里没装也没关系 —— 项目自带零依赖解析器。
 
 ### 3. 添加定时任务
 
@@ -106,12 +117,12 @@ Isvoro 走 Cloudflare，国内服务器访问可能不稳定（`ETIMEDOUT`）。
 
 也可以给 Isvoro 单独指定代理，写在配置文件里：
 
-```js
-isvoro: {
-  accounts: [
-    { name: '主号', cookie: '...', proxy: 'http://192.168.1.10:7890' },
-  ],
-},
+```yaml
+isvoro:
+  accounts:
+    - name: 主号
+      cookie: '...'
+      proxy: 'http://192.168.1.10:7890'
 ```
 
 脚本已内置重试机制（网络错误自动重试 2 次，间隔 1s/2s）。
@@ -151,37 +162,36 @@ F12 → **Application（应用程序）** → 左侧 **Cookies** → `https://is
 
 ⚠️ 注意看 **Path** 列！`pmt_refresh` 可能挂在 `/api/v1/auth` 这样的路径下，需要**展开所有 Path 分组**，不能只看 `/` 根路径下的。
 
-**填到配置文件里**（整行 Cookie 直接粘到 `cookie` 字段，不需要转义）：
+**填到配置文件里**（整行 Cookie 直接粘到 `cookie` 字段，外面套单引号即可，不需要转义）：
 
-```js
-isvoro: {
-  accounts: [
-    { name: '主号', cookie: 'pmt_access=xxx; pmt_refresh=yyy; pmt_csrf=zzz' },
-  ],
-},
+```yaml
+isvoro:
+  accounts:
+    - name: 主号
+      cookie: 'pmt_access=xxx; pmt_refresh=yyy; pmt_csrf=zzz'
 ```
 
-**多账户**：`accounts` 数组里加多个对象即可：
+**多账户**：`accounts` 下面加多个 `- name:` 项即可：
 
-```js
-isvoro: {
-  accounts: [
-    { name: '主号', cookie: 'pmt_access=aaa; pmt_refresh=bbb; pmt_csrf=ccc' },
-    { name: '小号', cookie: 'pmt_access=ddd; pmt_refresh=eee; pmt_csrf=fff' },
-  ],
-},
+```yaml
+isvoro:
+  accounts:
+    - name: 主号
+      cookie: 'pmt_access=aaa; pmt_refresh=bbb; pmt_csrf=ccc'
+    - name: 小号
+      cookie: 'pmt_access=ddd; pmt_refresh=eee; pmt_csrf=fff'
 ```
 
 ### 方式二：密码登录（可能被验证码拦截）
 
 如果网站暂时关闭了验证码，可以改用密码方式：
 
-```js
-isvoro: {
-  accounts: [
-    { name: '主号', email: 'your@email.com', password: 'yourpassword' },
-  ],
-},
+```yaml
+isvoro:
+  accounts:
+    - name: 主号
+      email: your@email.com
+      password: 'yourpassword'
 ```
 
 > 注意：登录接口正常情况下需要 hCaptcha 验证码，密码方式大概率会报错。请优先使用 Cookie 方式。
@@ -235,43 +245,59 @@ node telegram-login.js --proxy socks5://127.0.0.1:10808
 
 按提示输入 `api_id`、`api_hash`、手机号（含国家码如 `+8613800000000`）、Telegram 收到的验证码，如果开了两步验证再输密码。
 
-运行结束会直接打印一段**可粘贴的配置块**（含 `api_id` / `api_hash` / `session`），照着放进 `config/config.js` 即可。
+运行结束会直接打印一段**可粘贴的 YAML 配置块**（含 `api_id` / `api_hash` / `session`），照着放进 `config/config.yaml` 即可。
 
 > `session` 等于你的登录凭证，泄露等于账号被登录，切勿外传。
 
 ### 第 4 步：写进配置文件
 
-登录助手会直接打印一段可以直接粘贴的配置块，加到 `config/config.js` 的 `telegram` 数组里：
+登录助手会直接打印一段可以直接粘贴的配置块，加到 `config/config.yaml` 的 `telegram` 列表里：
 
-```js
-telegram: [
-  {
-    name: '主账号',                                        // 日志里显示的名字
-    api_id: 1234567,
-    api_hash: '0123456789abcdef0123456789abcdef',
-    session: '1BVtsOK...',                                // 长串直接放，不需要转义
-    proxy: 'socks5://127.0.0.1:10808',                    // 可选
-    notify: '',                                           // 可选: 签到汇总发到频道/群
-    bots: [
-      { username: 'aaa_bot', command: '/checkin' },
-      { username: 'bbb_bot', command: '/daily sign' },
-      { username: 'ccc_bot', command: ['/start', '/checkin'], clickButton: '签到' },
-      { target: '@my_group', command: '/checkin', botUsername: 'ddd_bot' },
-      { target: '-1001234567890', command: '/qd', botUsername: 'eee_bot' },
-    ],
-  },
-],
+```yaml
+telegram:
+  - name: 主账号                          # 日志里显示的名字
+    api_id: 1234567
+    api_hash: '0123456789abcdef0123456789abcdef'
+    session: '1BVtsOK...'                 # 长串直接放单引号里，不需要转义
+    proxy: 'socks5://127.0.0.1:10808'     # 可选
+    notify: ''                            # 可选: 签到汇总发到频道/群
+    bots:
+      - username: aaa_bot
+        command: /checkin
+      - username: bbb_bot
+        command: /daily sign
+      - username: ccc_bot
+        command: ['/start', '/checkin']
+        clickButton: '签到'
+      - target: '@my_group'
+        command: /checkin
+        botUsername: ddd_bot
+      - target: '-1001234567890'
+        command: /qd
+        botUsername: eee_bot
 ```
 
-> **session 为什么可以直接写在文件里**：它只是一个 JS 字符串，不经过 JSON 序列化，`+` `/` `=` 都不会出问题。脚本还会自动去掉粘贴时带入的换行和空格。
+> **session 为什么可以直接写在文件里**：它只是一段文本，不经过 JSON 序列化，`+` `/` `=` 都不会出问题。脚本还会自动去掉粘贴时带入的换行和空格。
 
-多账号就在 `telegram` 数组里加第二个对象，每个对象自带自己的 `api_id` / `api_hash` / `session`：
+多账号就在 `telegram` 下面加第二个 `- name:` 项，每个账号自带自己的 `api_id` / `api_hash` / `session`：
 
-```js
-telegram: [
-  { name: '主账号', api_id: 1111111, api_hash: '...', session: '...', bots: [...] },
-  { name: '小号',   api_id: 2222222, api_hash: '...', session: '...', bots: [...] },
-],
+```yaml
+telegram:
+  - name: 主账号
+    api_id: 1111111
+    api_hash: '...'
+    session: '...'
+    bots:
+      - username: aaa_bot
+        command: /checkin
+
+  - name: 小号
+    api_id: 2222222
+    api_hash: '...'
+    session: '...'
+    bots:
+      - username: aaa_bot
+        command: /checkin
 ```
 
 **每个目标支持的字段：**
@@ -279,9 +305,9 @@ telegram: [
 | 字段 | 必填 | 说明 |
 |------|------|------|
 | `username` / `target` | 是 | 目标，三种写法见下方「发到群组 / 频道」 |
-| `command` | 是 | 要发送的命令；数组可发多条，如 `["/start","/checkin"]` |
+| `command` | 是 | 要发送的命令；数组可发多条，如 `['/start', '/checkin']` |
 | `botUsername` | 否 | **群/频道里签到必填**，指定由哪个 bot 响应，用于过滤无关消息 |
-| `clickButton` | 否 | 若回复带内联按钮，自动点击文字匹配的按钮（如 `"签到"`） |
+| `clickButton` | 否 | 若回复带内联按钮，自动点击文字匹配的按钮（如 `'签到'`） |
 | `waitSeconds` | 否 | 等待回复秒数，默认 8 |
 | `successKeywords` | 否 | 自定义成功关键词 |
 | `skipKeywords` | 否 | 自定义"已签到"关键词 |
@@ -296,9 +322,11 @@ telegram: [
 
 | 写法 | 示例 | 说明 |
 |------|------|------|
-| 用户名 | `"aaa_bot"` / `"@mygroup"` | 最常用，bot 私聊或公开群/频道 |
-| 链接 | `"https://t.me/mygroup"` | 效果同上 |
-| 数字 id | `"-1001234567890"` | 私有群/频道用这个（没有公开用户名） |
+| 用户名 | `aaa_bot` / `'@mygroup'` | 最常用，bot 私聊或公开群/频道 |
+| 链接 | `'https://t.me/mygroup'` | 效果同上 |
+| 数字 id | `'-1001234567890'` | 私有群/频道用这个（没有公开用户名） |
+
+> `-100` 开头的负数一定要加引号，否则会被当成数字处理。
 
 **三种场景的区别：**
 
@@ -314,14 +342,16 @@ telegram: [
 
 账户级可选配置 `notify`，签到结束后自动把汇总发过去（用户账号需在该频道/群有发言权限）：
 
-```js
-notify: '@my_channel'
+```yaml
+    notify: '@my_channel'
 ```
 
-或只在有失败时推送：
+或只在有失败时推送（用嵌套写法）：
 
-```js
-notify: { target: '-1001234567890', onlyOnFailure: true }
+```yaml
+    notify:
+      target: '-1001234567890'
+      onlyOnFailure: true
 ```
 
 推送效果：
@@ -378,19 +408,34 @@ curl --socks5-hostname 127.0.0.1:10808 https://api.telegram.org
 | 现象 | 原因 / 解决 |
 |------|------------|
 | `缺少 telegram 依赖` | 青龙依赖管理里装 `telegram` |
-| `未找到 Telegram 配置, 跳过` | `config/config.js` 里还没有 `telegram` 段，按第 4 步加上 |
+| `未找到 Telegram 配置, 跳过` | `config/config.yaml` 里还没有 `telegram` 段，按第 4 步加上 |
+| `配置文件里没有 telegram 段, 跳过` | 正常提示，说明你只配了 Isvoro，不需要处理 |
 | `缺少 api_id / api_hash / session` | 配置文件里该账号这三个字段没填全，重跑 `telegram-login.js` 拿值 |
 | `session 格式不正确: Not a valid string` | session 复制不完整或被截断，重跑 `telegram-login.js` |
-| `没有配置任何签到目标 (bots 为空)` | 配置里该账号的 `bots` 数组还没填 |
+| `没有配置任何签到目标 (bots 为空)` | 配置里该账号的 `bots` 列表还没填 |
 | `connect ETIMEDOUT 149.154.167.91` | 直连不通，加 `--proxy socks5://127.0.0.1:10808`（登录）或配置 `proxy`（签到） |
 | `连接 Telegram 超时` | 没配 SOCKS5 代理，或端口不支持 SOCKS5 |
 | `session 已失效` | 在客户端里被"终止其他设备登录"了，重跑 `telegram-login.js` |
-| `未收到回复` | bot 要求先 `/start`，把 `command` 改成 `["/start","/checkin"]` |
+| `未收到回复` | bot 要求先 `/start`，把 `command` 改成 `['/start', '/checkin']` |
 | 群里签到收到别人的消息 | 补上 `botUsername` 指定响应的 bot |
-| `无法解析目标` | 私有群/频道用数字 id（`-100` 开头），或确认账号还在群里 |
+| `无法解析目标` | 私有群/频道用数字 id（`-100` 开头，记得加引号），或确认账号还在群里 |
 | `发送汇总失败` | 用户账号没有该频道/群的发言权限（频道需管理员） |
 | `未识别结果` | bot 回复文案特殊，加 `successKeywords` / `skipKeywords` 自定义 |
-| 命令发了但没签到 | 可能是按钮式签到，加 `clickButton: "签到"` |
+| 命令发了但没签到 | 可能是按钮式签到，加 `clickButton: '签到'` |
+
+---
+
+## 配置文件常见问题
+
+| 现象 | 原因 / 解决 |
+|------|------------|
+| `第 N 行: 缩进不一致` | 同一级的键必须对齐，用 2 个空格一级，别混 Tab |
+| `第 N 行: 缩进不能用 Tab` | 编辑器把 Tab 插进来了，改成空格 |
+| `第 N 行: 引号没有闭合` | 值里有 `'` 或漏了结尾引号；单引号里要写 `''` |
+| `第 N 行: 不是合法的 "键: 值" 格式` | 冒号后面要有一个空格：`name: 主号` |
+| `不支持多行文本块 (| 或 >)` | cookie/session 都写一行，用引号包住 |
+| `读取配置文件失败` | 上面会给出具体行号，按提示改那一行 |
+| 配置改了但日志还是旧的 | 青龙里脚本没更新，或 `CONFIG_FILE` 指向了别的文件 |
 
 ---
 
@@ -404,12 +449,12 @@ curl --socks5-hostname 127.0.0.1:10808 https://api.telegram.org
 
 下次运行时按这个顺序尝试：
 
-1. 配置文件 `config/config.js` 里 `isvoro.accounts` 的 `cookie`
+1. 配置文件 `config/config.yaml` 里 `isvoro.accounts` 的 `cookie`
 2. 上次运行保存的本地缓存
 
 所以正常情况下，只要第一次能跑通，之后就能自动续期，不用天天手动换 Cookie。
 
-如果两个来源都失效（日志会列出每个来源的失败原因），按上面的「方法 A」重新取一次 Cookie 填到 `config/config.js` 里即可，脚本会自动覆盖旧缓存。
+如果两个来源都失效（日志会列出每个来源的失败原因），按上面的「方法 A」重新取一次 Cookie 填到 `config/config.yaml` 里即可，脚本会自动覆盖旧缓存。
 
 > `.cookie-store/` 已加入 `.gitignore`，不会被提交到仓库。
 > 想换个位置可以设 `ISVORO_COOKIE_DIR=/ql/data/config/cookie`。
@@ -436,7 +481,14 @@ curl --socks5-hostname 127.0.0.1:10808 https://api.telegram.org
      yoursite: { handler: YourSiteHandler, loadAccounts: loadYoursiteAccounts, envKey: 'YOURSITE_ACCOUNTS', label: 'YourSite' },
    };
    ```
-4. 在 `config/config.js` 里加一段 `yoursite: { accounts: [...] }`
+4. 在 `config/config.yaml` 里加一段：
+   ```yaml
+   yoursite:
+     accounts:
+       - name: 主号
+         username: xxx
+         password: 'yyy'
+   ```
 
 > 不写 `loadAccounts` 时，运行器会直接读 `envKey` 对应的环境变量（旧行为），所以老站点不用改。
 
