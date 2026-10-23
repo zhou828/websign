@@ -3,9 +3,10 @@
  * 网站: https://isvoro.com
  *
  * API 分析 (来自前端 JS 逆向):
- *   登录:    POST /auth/login          body: { email, password }
- *   签到状态: GET  /points/checkin/status
- *   签到:    POST /points/checkin
+ *   基础路径: /api/v1
+ *   登录:    POST /api/v1/auth/login          body: { email, password }
+ *   签到状态: GET  /api/v1/points/checkin/status
+ *   签到:    POST /api/v1/points/checkin
  *   CSRF:    从 Cookie 中的 pmt_csrf 值, 放入请求头 X-CSRF-Token
  */
 
@@ -18,6 +19,7 @@ class IsvoroHandler extends SiteHandler {
   constructor(account, logger) {
     super(account, logger);
     this.baseUrl = 'https://isvoro.com';
+    this.apiPrefix = '/api/v1';
     this.cookies = {};
   }
 
@@ -26,7 +28,10 @@ class IsvoroHandler extends SiteHandler {
    */
   _request(method, path, { body, headers, timeout = 30000 } = {}) {
     return new Promise((resolve, reject) => {
-      const url = new URL(path, this.baseUrl);
+      // 以 / 开头且非 API 路径(如首页 /), 不加前缀; 否则加 /api/v1
+      const isApiPath = path.startsWith('/') && !path.startsWith('//') && path !== '/' && !path.startsWith('/assets') && !path.startsWith('/fonts');
+      const fullPath = path.startsWith('http') ? path : (isApiPath ? this.apiPrefix + path : path);
+      const url = new URL(fullPath, this.baseUrl);
       const isHttps = url.protocol === 'https:';
       const lib = isHttps ? https : http;
 
