@@ -330,16 +330,18 @@ telegram:
       - username: aaa_bot
         command: /checkin
       - username: bbb_bot
-        command: /daily sign
+        text: '签到'                      # 普通文字也可以, 和 command 等价
       - username: ccc_bot
         command: ['/start', '/checkin']
         clickButton: '签到'
       - target: '@my_group'
         command: /checkin
         botUsername: ddd_bot
+        mentionBot: true                  # 自动补成 /checkin@ddd_bot
       - target: '-1001234567890'
         command: /qd
         botUsername: eee_bot
+        mentionBot: true
 ```
 
 > **session 为什么可以直接写在文件里**：它只是一段文本，不经过 JSON 序列化，`+` `/` `=` 都不会出问题。脚本还会自动去掉粘贴时带入的换行和空格。
@@ -370,8 +372,10 @@ telegram:
 | 字段 | 必填 | 说明 |
 |------|------|------|
 | `username` / `target` | 是 | 目标，三种写法见下方「发到群组 / 频道」 |
-| `command` | 是 | 要发送的命令；数组可发多条，如 `['/start', '/checkin']` |
+| `command` | 是 | **要发送的内容，任意文本**，不要求以 `/` 开头（写 `签到`、`打卡` 都行）；数组可发多条，如 `['/start', '/checkin']` |
+| `text` / `message` | 否 | 和 `command` 完全等价，发普通文字时用它语义更清楚 |
 | `botUsername` | 否 | **群/频道里签到必填**，指定由哪个 bot 响应，用于过滤无关消息 |
+| `mentionBot` | 否 | 群/频道里设 `true`，自动补 `@bot`：`/checkin` → `/checkin@ddd_bot`，`签到` → `签到 @ddd_bot` |
 | `clickButton` | 否 | 若回复带内联按钮，自动点击文字匹配的按钮（如 `'签到'`） |
 | `waitSeconds` | 否 | 等待回复秒数，默认 8 |
 | `successKeywords` | 否 | 自定义成功关键词 |
@@ -380,6 +384,31 @@ telegram:
 | `enabled` | 否 | 设 `false` 可临时跳过 |
 
 也可以简写成字符串数组：`bots: ['aaa_bot:/checkin', 'bbb_bot /daily', 'https://t.me/mygroup /checkin']`
+
+**关于"命令"：其实发什么由你定**
+
+`command` 只是"要发送的那段文本"，脚本原样发出去，不会做任何解析。所以：
+
+```yaml
+# 这个 bot 要的是命令
+- username: aaa_bot
+  command: /checkin
+
+# 这个 bot 要的是普通文字
+- username: bbb_bot
+  text: '签到'
+
+# 这个 bot 要先 /start 再点按钮
+- username: ccc_bot
+  command: /start
+  clickButton: '签到'
+
+# 要发多段
+- username: ddd_bot
+  command: ['/start', '每日签到']
+```
+
+具体发什么，取决于目标 bot 自己怎么设计 —— 打开 Telegram 手动试一次，它回什么、你发什么能触发签到，照着填即可。
 
 ### 发到群组 / 频道
 
@@ -397,9 +426,33 @@ telegram:
 
 | 场景 | 能做什么 | 说明 |
 |------|---------|------|
-| 私聊 bot | 发命令签到 | 最常见 |
-| **群组** | 发命令签到 | 群里的签到 bot 会响应，**必须配 `botUsername`** 指明是哪个 bot 回复 |
+| 私聊 bot | 发内容签到 | 最常见 |
+| **群组** | 发内容签到 | 群里的签到 bot 会响应，**必须配 `botUsername`** 指明是哪个 bot 回复 |
 | **频道** | 只能发通知 | 频道里 bot 不会响应命令；你的账号需是频道管理员才能发言 |
+
+**群里发内容，建议开 `mentionBot`**
+
+Telegram 群里命令通常要写成 `/checkin@aaa_bot` 才会被**指定的** bot 处理。手写容易漏，交给脚本补：
+
+```yaml
+- target: '@my_group'
+  command: /checkin
+  botUsername: aaa_bot
+  mentionBot: true          # 实际发送: /checkin@aaa_bot
+```
+
+普通文字也一样：
+
+```yaml
+- target: '@my_group'
+  text: '签到'
+  botUsername: aaa_bot
+  mentionBot: true          # 实际发送: 签到 @aaa_bot
+```
+
+> 不开 `mentionBot` 时脚本原样发送。如果群里只有一个 bot，或者这个 bot 监听所有消息，不补 `@` 也能用；拿不准就先手动在群里试一次。
+>
+> 你自己已经写了 `@aaa_bot` 的话，脚本不会重复追加。
 
 **取私有群的数字 id**：浏览器打开 https://web.telegram.org，进入该群，地址栏 `#-1001234567890` 里的那串就是。也可以直接粘贴 `https://t.me/c/1234567890/5` 这种链接，脚本会自动转成 `-1001234567890`。
 
@@ -437,10 +490,10 @@ telegram:
 [Telegram#1] 使用 SOCKS5 代理 127.0.0.1:10808
 [Telegram#1] Telegram 登录成功: 你的名字 (@yourname)
 [Telegram#1] 共 3 个目标待签到
-[Telegram#1] @aaa_bot → 发送命令: /checkin
+[Telegram#1] @aaa_bot → 发送: /checkin
 [Telegram#1] @aaa_bot 回复: 签到成功，获得 10 积分
 [Telegram#1] ✅ @aaa_bot 签到成功
-[Telegram#1] @my_group → 发送命令: /checkin
+[Telegram#1] @my_group → 发送: /checkin@ddd_bot
 [Telegram#1] @my_group 回复: 签到成功
 [Telegram#1] ✅ @my_group 签到成功
 [Telegram#1] @ccc_bot 已点击按钮: 签到

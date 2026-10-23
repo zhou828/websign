@@ -112,17 +112,23 @@ telegram:
 
       # ── 私聊 bot 签到 (最常见) ──
       # username: bot 的用户名, 不带 @ 也行
-      # command:  要发送的命令, 必须和该 bot 要求的完全一致
+      # command:  要发送的内容, 必须和该 bot 要求的完全一致
+      #           不要求以 / 开头 —— 有些 bot 要的是普通文字, 直接写 '签到' 即可
       - username: aaa_bot
         command: /checkin
 
-      # ── 第二个 bot, 命令不一样 ──
+      # ── 第二个 bot, 内容不一样 ──
       - username: bbb_bot
         command: /daily sign
 
         # 【可选】等待回复的秒数, 默认 8
         # 有些 bot 响应慢, 或者要跑一会儿才回, 可以调大
         waitSeconds: 10
+
+      # ── 要发的是普通文字, 不是命令 ──
+      # 用 text 字段语义更清楚, 效果和 command 完全一样
+      # - username: ggg_bot
+      #   text: '每日打卡'
 
       # ── 按钮式签到: bot 回复带内联按钮, 自动点文字匹配的按钮 ──
       # - username: ccc_bot
@@ -132,9 +138,19 @@ telegram:
       # ── 群组签到: 群里 @bot 或 bot 自动响应 ──
       # target:      群用户名或数字 id
       # botUsername: 必填! 指明由哪个 bot 响应, 用于过滤群里其他人的消息
+      # mentionBot:  可选, true 时自动把内容补成 /checkin@ddd_bot
+      #              (Telegram 群里命令通常要带 @bot 才会被指定 bot 处理)
       # - target: '@my_group'
       #   command: /checkin
       #   botUsername: ddd_bot
+      #   mentionBot: true
+
+      # ── 群里发普通文字 (不是命令) ──
+      # mentionBot: true 时会自动补成 '签到 @ddd_bot'
+      # - target: '@my_group'
+      #   text: '签到'
+      #   botUsername: ddd_bot
+      #   mentionBot: true
 
       # ── 私有群/频道: 用 -100 开头的数字 id ──
       # 取法: web.telegram.org 进群, 地址栏 #-1001234567890 那串
@@ -143,6 +159,7 @@ telegram:
       # - target: '-1001234567890'
       #   command: /qd
       #   botUsername: eee_bot
+      #   mentionBot: true
 
       # ── 临时跳过某一条 ──
       # enabled: false  # 设为 false 就不执行这一条
@@ -165,8 +182,11 @@ telegram:
 #
 #  username          私聊 bot 时用, bot 的用户名
 #  target            群/频道用, 支持 @用户名 / t.me 链接 / -100 数字 id
-#  command           要发的命令, 字符串; 多条可写成 ['/start', '/checkin']
+#  command           要发送的内容 (任意文本, 不要求以 / 开头); 多条写成 ['/start', '/checkin']
+#  text              和 command 等价, 发普通文字时用它更直观
+#  message           同 text
 #  botUsername       群/频道里必填, 指明哪个 bot 会回复
+#  mentionBot        群/频道里设 true, 自动补 @bot (/checkin → /checkin@ddd_bot)
 #  clickButton       回复带内联按钮时, 自动点文字匹配的按钮
 #  waitSeconds       等回复秒数, 默认 8
 #  successKeywords   自定义成功关键词 (数组), 覆盖默认判断

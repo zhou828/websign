@@ -331,7 +331,8 @@ class TelegramHandler extends SiteHandler {
     const waitSeconds = bot.waitSeconds || DEFAULTS.waitSeconds;
 
     const entity = await this._getEntity(bot.target);
-    this.logger.info(`${bot.label} → 发送命令: ${commands.join(' , ')}`);
+    const payloads = commands.map(c => this._decorateCommand(String(c), bot));
+    this.logger.info(`${bot.label} → 发送: ${payloads.join(' , ')}`);
 
     // 群/频道里需要知道是哪个 bot 在响应, 用于过滤无关消息
     let botId = null;
@@ -355,11 +356,11 @@ class TelegramHandler extends SiteHandler {
 
     let sentId = lastId;
     const sentIds = [];
-    for (const cmd of commands) {
+    for (const payload of payloads) {
       const msg = await this._withTimeout(
-        this.client.sendMessage(entity, { message: String(cmd) }),
+        this.client.sendMessage(entity, { message: payload }),
         20000,
-        `发送命令 ${cmd}`
+        `发送内容 ${payload}`
       );
       if (msg && msg.id) {
         sentId = Math.max(sentId, msg.id);
@@ -580,6 +581,9 @@ class TelegramHandler extends SiteHandler {
    *   { "target": "@mygroup", "command": "/checkin", "botUsername": "aaa_bot" }
    *   { "target": "-1001234567890", "command": "/checkin" }
    * 简写字符串: "aaa_bot:/checkin" / "aaa_bot /checkin" / "https://t.me/mygroup /checkin"
+   *
+   * command 不要求以 / 开头, 写任意文本都行 (如 "签到" / "打卡"), 也可以用 text 字段;
+   * 群里想让指定 bot 响应, 加 mentionBot: true 会自动补成 /checkin@aaa_bot
    */
   _normalizeBot(raw, idx) {
     let bot = raw;
@@ -618,7 +622,12 @@ class TelegramHandler extends SiteHandler {
       .replace(/^@/, '');
     const label = /^-?\d+$/.test(bare) ? `[${bare}]` : `@${bare.split('/')[0]}`;
 
+    // command 只是"要发送的文本", 不要求以 / 开头, 写中文、按钮文字都可以
+    // 也支持 text / message 两种更直观的字段名
     let command = bot.command;
+    if (command === undefined || command === null || command === '') {
+      command = bot.text !== undefined ? bot.text : bot.message;
+    }
     if (command === undefined || command === null || command === '') command = '/start';
     command = Array.isArray(command)
       ? command.map(c => String(c)).filter(Boolean)
@@ -632,8 +641,21 @@ class TelegramHandler extends SiteHandler {
       label,
       botUsername,
       command,
+      // 群里发文本时是否自动补 @bot (默认关闭, 需要时在配置里写 mentionBot: true)
+      mentionBot: bot.mentionBot === true,
       waitSeconds: Number(bot.waitSeconds) > 0 ? Number(bot.waitSeconds) : DEFAULTS.waitSeconds,
     };
+  }
+
+  /**
+   * 拼出发送内容
+   * 私聊 bot: 原样发送
+   * 群组: 可选补 @bot —— Telegram 群里命令通常要写成 /checkin@aaa_bot 才会被指定 bot 处理
+   */
+  _decorateCommand(text, bot) {
+    if (!bot.mentionBot || !bot.botUsername) return text;
+    if (text.includes('@')) return text; // 自己已经写了 @, 不重复加
+    return text.startsWith('/') ? `${text}@${bot.botUsername}` : `${text} @${bot.botUsername}`;
   }
 }
 
