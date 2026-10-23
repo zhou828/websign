@@ -18,20 +18,35 @@
  *     "api_id": 123456,
  *     "api_hash": "abcdef0123456789",
  *     "session": "1BVtsOK...",
+ *     "notify": "@my_channel",
  *     "bots": [
  *       { "username": "aaa_bot", "command": "/checkin" },
  *       { "username": "bbb_bot", "command": "/daily sign", "waitSeconds": 10 },
- *       { "username": "ccc_bot", "command": "/start", "clickButton": "签到" }
+ *       { "username": "ccc_bot", "command": "/start", "clickButton": "签到" },
+ *       { "target": "@my_group", "command": "/checkin", "botUsername": "ddd_bot" },
+ *       { "target": "-1001234567890", "command": "/qd", "botUsername": "eee_bot" }
  *     ]
  *   }
  *
- * 每个 bot 支持的字段:
- *   username      必填, bot 用户名 (可带 @)
- *   command       必填, 要发送的命令; 数组形式可发多条, 如 ["/start", "/checkin"]
- *   clickButton   可选, 若 bot 回复带内联按钮, 自动点击文字匹配的按钮 (如 "签到")
- *   waitSeconds   可选, 等待 bot 回复的秒数, 默认 8
+ * 目标 (username / target) 三种写法:
+ *   "aaa_bot"                  私聊 bot
+ *   "https://t.me/my_group"    公开群/频道
+ *   "-1001234567890"           私有群/频道 (数字 id)
+ *
+ * 每个目标支持的字段:
+ *   username / target  必填, 目标 bot 用户名、群组或频道
+ *   command            必填, 要发送的命令; 数组形式可发多条, 如 ["/start", "/checkin"]
+ *   botUsername        群/频道签到建议填, 指定响应的 bot, 用于过滤无关消息
+ *   clickButton        可选, 若回复带内联按钮, 自动点击文字匹配的按钮 (如 "签到")
+ *   waitSeconds        可选, 等待回复的秒数, 默认 8
  *   successKeywords / skipKeywords / failKeywords  可选, 自定义结果关键词
- *   enabled       可选, 设为 false 可临时跳过该 bot
+ *   enabled            可选, 设为 false 可临时跳过
+ *
+ * 账户级 notify (可选): 签到结束后把汇总发到指定频道/群
+ *   "notify": "@my_channel"
+ *   "notify": { "target": "-1001234567890", "onlyOnFailure": true }
+ *
+ * 注意: 频道里 bot 不会响应命令, 频道只适合用 notify 接收签到汇总。
  */
 
 const { SiteHandler } = require('./base');
@@ -319,14 +334,18 @@ class TelegramHandler extends SiteHandler {
           else failed++;
         } catch (e) {
           failed++;
-          results.push({ bot: bot.username, status: 'failed', message: e.message });
-          this.logger.error(`@${bot.username} 签到失败: ${e.message}`);
+          results.push({ bot: bot.label, status: 'failed', message: e.message });
+          this.logger.error(`${bot.label} 签到失败: ${e.message}`);
         }
 
         if (i < enabled.length - 1) {
           await sleep(DEFAULTS.betweenBotsMs);
         }
       }
+
+      // 可选: 把汇总发到指定频道/群
+      const summaryText = `成功 ${ok}, 已签到 ${skipped}, 失败 ${failed}`;
+      await this._sendNotify(results, summaryText);
     } finally {
       try { await this.client.disconnect(); } catch { /* ignore */ }
       this.logger.info('Telegram 连接已断开');
@@ -343,97 +362,213 @@ class TelegramHandler extends SiteHandler {
   }
 
   /**
-   * 单个 bot 签到: 发命令 → 等回复 → 判定结果
+   * 单个目标签到: 发命令 → 等回复 → 判定结果
+   * 目标可以是 bot 私聊、群组、频道 (群/频道里由群内 bot 响应命令)
    */
   async _checkinBot(rawBot) {
     const bot = rawBot;
     const commands = Array.isArray(bot.command) ? bot.command : [bot.command];
     const waitSeconds = bot.waitSeconds || DEFAULTS.waitSeconds;
 
-    this.logger.info(`@${bot.username} → 发送命令: ${commands.join(' , ')}`);
+    const entity = await this._getEntity(bot.target);
+    this.logger.info(`${bot.label} → 发送命令: ${commands.join(' , ')}`);
+
+    // 群/频道里需要知道是哪个 bot 在响应, 用于过滤无关消息
+    let botId = null;
+    if (bot.botUsername) {
+      try {
+        const botEntity = await this._getEntity(bot.botUsername);
+        botId = botEntity && botEntity.id;
+      } catch (e) {
+        this.logger.warn(`解析响应 bot ${bot.botUsername} 失败: ${e.message}`);
+      }
+    }
 
     // 记录发送前的最后一条消息 id, 用于区分新回复
     let lastId = 0;
     try {
-      const prev = await this._withTimeout(this.client.getMessages(bot.username, { limit: 1 }), 20000, '读取历史消息');
+      const prev = await this._withTimeout(this.client.getMessages(entity, { limit: 1 }), 20000, '读取历史消息');
       if (prev && prev.length) lastId = prev[0].id;
     } catch {
       // 首次对话可能没有历史, 忽略
     }
 
     let sentId = lastId;
+    const sentIds = [];
     for (const cmd of commands) {
       const msg = await this._withTimeout(
-        this.client.sendMessage(bot.username, { message: String(cmd) }),
+        this.client.sendMessage(entity, { message: String(cmd) }),
         20000,
         `发送命令 ${cmd}`
       );
-      if (msg && msg.id) sentId = Math.max(sentId, msg.id);
+      if (msg && msg.id) {
+        sentId = Math.max(sentId, msg.id);
+        sentIds.push(msg.id);
+      }
       await sleep(800);
     }
 
-    // 等待 bot 回复
-    const replies = await this._waitReplies(bot.username, sentId, waitSeconds);
+    // 等待回复
+    const replies = await this._waitReplies(entity, sentId, waitSeconds, { sentIds, botId, label: bot.label });
 
     if (!replies.length) {
-      this.logger.warn(`@${bot.username} 未收到回复 (${waitSeconds}s), 命令已发送`);
-      return { bot: bot.username, status: 'unknown', message: `已发送, ${waitSeconds}s 内未收到回复` };
+      this.logger.warn(`${bot.label} 未收到回复 (${waitSeconds}s), 命令已发送`);
+      return { bot: bot.label, status: 'unknown', message: `已发送, ${waitSeconds}s 内未收到回复` };
     }
 
     let text = replies.map(m => this._textOf(m)).filter(Boolean).join('\n').trim();
-    this.logger.info(`@${bot.username} 回复: ${truncate(text || '(无文字内容)', 200)}`);
+    this.logger.info(`${bot.label} 回复: ${truncate(text || '(无文字内容)', 200)}`);
 
     // 可选: 点击内联按钮 (很多签到 bot 是按钮式)
     if (bot.clickButton) {
       const clicked = await this._clickButton(replies, bot.clickButton);
       if (clicked) {
-        this.logger.info(`@${bot.username} 已点击按钮: ${bot.clickButton}`);
-        const more = await this._waitReplies(bot.username, sentId, waitSeconds);
+        this.logger.info(`${bot.label} 已点击按钮: ${bot.clickButton}`);
+        const more = await this._waitReplies(entity, sentId, waitSeconds, { sentIds, botId, label: bot.label });
         const moreText = more.map(m => this._textOf(m)).filter(Boolean).join('\n').trim();
         if (moreText) {
           text = moreText;
-          this.logger.info(`@${bot.username} 按钮后回复: ${truncate(moreText, 200)}`);
+          this.logger.info(`${bot.label} 按钮后回复: ${truncate(moreText, 200)}`);
         }
       } else {
-        this.logger.warn(`@${bot.username} 未找到按钮「${bot.clickButton}」`);
+        this.logger.warn(`${bot.label} 未找到按钮「${bot.clickButton}」`);
       }
     }
 
     const status = this._classify(text, bot);
     if (status === 'skipped') {
-      this.logger.success(`@${bot.username} 今日已签到`);
+      this.logger.success(`${bot.label} 今日已签到`);
     } else if (status === 'success') {
-      this.logger.success(`@${bot.username} 签到成功`);
+      this.logger.success(`${bot.label} 签到成功`);
     } else if (status === 'failed') {
-      this.logger.error(`@${bot.username} 签到失败: ${truncate(text, 150)}`);
+      this.logger.error(`${bot.label} 签到失败: ${truncate(text, 150)}`);
     } else {
-      this.logger.warn(`@${bot.username} 已发送, 但未识别结果: ${truncate(text, 150)}`);
+      this.logger.warn(`${bot.label} 已发送, 但未识别结果: ${truncate(text, 150)}`);
     }
 
-    return { bot: bot.username, status, message: truncate(text, 300) };
+    return { bot: bot.label, status, message: truncate(text, 300) };
   }
 
-  /** 轮询等待 bot 的新回复 */
-  async _waitReplies(username, afterId, waitSeconds) {
+  /**
+   * 轮询等待新回复
+   * 群/频道里噪音多, 优先取「回复了我们的消息」或「发送者为指定 bot」的消息
+   */
+  async _waitReplies(entity, afterId, waitSeconds, opts = {}) {
+    const { sentIds = [], botId = null, label = '' } = opts;
     const deadline = Date.now() + waitSeconds * 1000;
-    const collected = new Map();
+    const strong = new Map(); // 高置信度: 回复我们 / 来自目标 bot
+    const weak = new Map();   // 兜底: 任意新消息
 
     while (Date.now() < deadline) {
       await sleep(DEFAULTS.pollIntervalMs);
       try {
-        const msgs = await this._withTimeout(this.client.getMessages(username, { limit: 8 }), 15000, '读取回复');
+        const msgs = await this._withTimeout(this.client.getMessages(entity, { limit: 15 }), 15000, '读取回复');
         for (const m of msgs || []) {
-          if (!m || m.out) continue;        // 跳过自己发的
-          if (m.id <= afterId) continue;    // 跳过旧消息
-          collected.set(m.id, m);
+          if (!m || m.out) continue;      // 跳过自己发的
+          if (m.id <= afterId) continue;  // 跳过旧消息
+
+          const replyTo = m.replyTo && (m.replyTo.replyToMsgId || m.replyTo.reply_to_msg_id);
+          const isReplyToUs = replyTo && sentIds.includes(replyTo);
+          const isFromBot = botId && m.senderId && String(m.senderId) === String(botId);
+
+          if (isReplyToUs || isFromBot) strong.set(m.id, m);
+          else weak.set(m.id, m);
         }
-        if (collected.size) break;          // 收到回复就返回, 不再等满
+        if (strong.size) break;
+        // 私聊场景没有 botId 时, 新消息基本就是回复
+        if (!botId && weak.size) break;
       } catch (e) {
-        this.logger.warn(`读取 @${username} 消息失败: ${e.message}`);
+        this.logger.warn(`读取 ${label || '目标'} 消息失败: ${e.message}`);
       }
     }
 
-    return [...collected.values()].sort((a, b) => a.id - b.id);
+    const picked = strong.size ? strong : weak;
+    return [...picked.values()].sort((a, b) => a.id - b.id);
+  }
+
+  /**
+   * 把用户配置的目标解析成 GramJS 能识别的 entity 标识
+   * 支持: @username / username / t.me/name / https://t.me/name /
+   *       t.me/c/123456789/1 / 数字 id (-100 开头为频道/超级群)
+   */
+  _resolveTarget(raw) {
+    let s = String(raw || '').trim();
+    if (!s) throw new Error('目标为空');
+
+    // 私有群/频道链接: https://t.me/c/1234567890/123 → -1001234567890
+    const priv = s.match(/t(?:elegram)?\.me\/c\/(\d+)/i);
+    if (priv) return Number(`-100${priv[1]}`);
+
+    s = s.replace(/^https?:\/\//i, '')
+      .replace(/^t(?:elegram)?\.me\//i, '')
+      .replace(/^@/, '')
+      .replace(/\/.*$/, '');
+
+    if (/^-?\d+$/.test(s)) return Number(s);
+    return s;
+  }
+
+  /** 解析目标为 entity, 数字 id 未缓存时拉取对话列表重试 */
+  async _getEntity(raw) {
+    const resolved = this._resolveTarget(raw);
+    try {
+      return await this._withTimeout(this.client.getEntity(resolved), 20000, '解析目标');
+    } catch (e) {
+      if (typeof resolved === 'number') {
+        this.logger.info(`目标 ${raw} 不在缓存中, 拉取对话列表后重试...`);
+        try {
+          await this._withTimeout(this.client.getDialogs({ limit: 500 }), 60000, '拉取对话列表');
+          return await this._withTimeout(this.client.getEntity(resolved), 20000, '解析目标');
+        } catch (e2) {
+          throw new Error(
+            `无法解析目标 ${raw} (数字 id ${resolved}): ${e2.message}\n` +
+            '请确认: 1) 该群/频道在你的账号里 2) id 格式正确 (-100 开头为超级群/频道) 3) 账号没有被踢出'
+          );
+        }
+      }
+      throw new Error(
+        `无法解析目标 ${raw}: ${e.message}\n` +
+        '私有群/频道请改用数字 id (-100 开头), 可从 https://web.telegram.org 打开该群后看地址栏'
+      );
+    }
+  }
+
+  /**
+   * 发送签到汇总通知到指定频道/群
+   * 配置: "notify": "@mychannel"  或  "notify": {"target":"@mychannel","onlyOnFailure":true}
+   */
+  async _sendNotify(results, summary) {
+    const cfg = this.account.notify;
+    if (!cfg) return;
+
+    const target = typeof cfg === 'string' ? cfg : cfg.target;
+    if (!target) return;
+
+    const onlyFail = typeof cfg === 'object' && cfg.onlyOnFailure;
+    const failedCount = results.filter(r => r.status === 'failed').length;
+    if (onlyFail && failedCount === 0) {
+      this.logger.info('无失败项, 按配置跳过通知');
+      return;
+    }
+
+    const icon = { success: '✅', skipped: '☑️', unknown: '❔', failed: '❌' };
+    const lines = [`📋 签到汇总: ${summary}`];
+    for (const r of results) {
+      lines.push(`${icon[r.status] || '•'} ${r.bot}: ${truncate(r.message || r.status, 100)}`);
+    }
+    lines.push(`🕒 ${new Date().toLocaleString('zh-CN', { hour12: false })}`);
+
+    try {
+      const entity = await this._getEntity(target);
+      await this._withTimeout(
+        this.client.sendMessage(entity, { message: lines.join('\n') }),
+        20000,
+        '发送汇总通知'
+      );
+      this.logger.info(`已发送签到汇总到 ${target}`);
+    } catch (e) {
+      this.logger.warn(`发送汇总到 ${target} 失败: ${e.message}`);
+    }
   }
 
   /** 取消息文本 */
@@ -480,40 +615,62 @@ class TelegramHandler extends SiteHandler {
 
   /**
    * 规范化 bot 配置
-   * 支持简写字符串: "xxx_bot:/checkin" 或 "xxx_bot /checkin"
+   * 目标可以是 bot 私聊 / 群组 / 频道:
+   *   { "username": "aaa_bot", "command": "/checkin" }
+   *   { "target": "@mygroup", "command": "/checkin", "botUsername": "aaa_bot" }
+   *   { "target": "-1001234567890", "command": "/checkin" }
+   * 简写字符串: "aaa_bot:/checkin" / "aaa_bot /checkin" / "https://t.me/mygroup /checkin"
    */
   _normalizeBot(raw, idx) {
     let bot = raw;
 
     if (typeof raw === 'string') {
       const s = raw.trim();
-      const sep = s.indexOf(':');
-      if (sep > 0) {
-        bot = { username: s.substring(0, sep).trim(), command: s.substring(sep + 1).trim() };
-      } else {
-        const sp = s.indexOf(' ');
+      if (/^(https?:\/\/|t\.me\/|telegram\.me\/)/i.test(s)) {
+        // 链接形式: 链接 + 空格 + 命令
+        const sp = s.search(/\s/);
         bot = sp > 0
-          ? { username: s.substring(0, sp).trim(), command: s.substring(sp + 1).trim() }
-          : { username: s, command: '/start' };
+          ? { target: s.substring(0, sp), command: s.substring(sp + 1).trim() }
+          : { target: s, command: '/start' };
+      } else {
+        const sep = s.indexOf(':');
+        if (sep > 0) {
+          bot = { target: s.substring(0, sep).trim(), command: s.substring(sep + 1).trim() };
+        } else {
+          const sp = s.indexOf(' ');
+          bot = sp > 0
+            ? { target: s.substring(0, sp).trim(), command: s.substring(sp + 1).trim() }
+            : { target: s, command: '/start' };
+        }
       }
     }
 
-    if (!bot || !bot.username) {
-      throw new Error(`第 ${idx + 1} 个 bot 配置缺少 username`);
+    const targetRaw = bot && (bot.target || bot.username || bot.chat || bot.channel);
+    if (!targetRaw) {
+      throw new Error(`第 ${idx + 1} 个配置缺少 target / username (bot 用户名、群组或频道)`);
     }
 
-    const username = String(bot.username).trim().replace(/^@/, '');
+    const target = String(targetRaw).trim();
+    // 显示用标签: 用户名形式显示 @xxx, 数字 id 原样显示
+    const bare = target
+      .replace(/^https?:\/\//i, '')
+      .replace(/^t(?:elegram)?\.me\//i, '')
+      .replace(/^@/, '');
+    const label = /^-?\d+$/.test(bare) ? `[${bare}]` : `@${bare.split('/')[0]}`;
+
     let command = bot.command;
     if (command === undefined || command === null || command === '') command = '/start';
-    if (Array.isArray(command)) {
-      command = command.map(c => String(c)).filter(Boolean);
-    } else {
-      command = [String(command)];
-    }
+    command = Array.isArray(command)
+      ? command.map(c => String(c)).filter(Boolean)
+      : [String(command)];
+
+    const botUsername = bot.botUsername ? String(bot.botUsername).trim().replace(/^@/, '') : '';
 
     return {
       ...bot,
-      username,
+      target,
+      label,
+      botUsername,
       command,
       waitSeconds: Number(bot.waitSeconds) > 0 ? Number(bot.waitSeconds) : DEFAULTS.waitSeconds,
     };

@@ -143,30 +143,77 @@ node telegram-login.js
   "api_hash": "0123456789abcdef0123456789abcdef",
   "session": "1BVtsOK...",
   "proxy": "socks5://127.0.0.1:10808",
+  "notify": "@my_channel",
   "bots": [
     { "username": "aaa_bot", "command": "/checkin" },
     { "username": "bbb_bot", "command": "/daily sign" },
-    { "username": "ccc_bot", "command": ["/start", "/checkin"], "clickButton": "签到" }
+    { "username": "ccc_bot", "command": ["/start", "/checkin"], "clickButton": "签到" },
+    { "target": "@my_group", "command": "/checkin", "botUsername": "ddd_bot" },
+    { "target": "-1001234567890", "command": "/qd", "botUsername": "eee_bot" }
   ]
 }
 ```
 
 多个 Telegram 账号就写成数组：`[{...}, {...}]`。
 
-**每个 bot 支持的字段：**
+**每个目标支持的字段：**
 
 | 字段 | 必填 | 说明 |
 |------|------|------|
-| `username` | 是 | bot 用户名，可带 `@` |
+| `username` / `target` | 是 | 目标，三种写法见下方「发到群组 / 频道」 |
 | `command` | 是 | 要发送的命令；数组可发多条，如 `["/start","/checkin"]` |
-| `clickButton` | 否 | 若 bot 回复带内联按钮，自动点击文字匹配的按钮（如 `"签到"`） |
+| `botUsername` | 否 | **群/频道里签到必填**，指定由哪个 bot 响应，用于过滤无关消息 |
+| `clickButton` | 否 | 若回复带内联按钮，自动点击文字匹配的按钮（如 `"签到"`） |
 | `waitSeconds` | 否 | 等待回复秒数，默认 8 |
 | `successKeywords` | 否 | 自定义成功关键词 |
 | `skipKeywords` | 否 | 自定义"已签到"关键词 |
 | `failKeywords` | 否 | 自定义失败关键词 |
-| `enabled` | 否 | 设 `false` 可临时跳过该 bot |
+| `enabled` | 否 | 设 `false` 可临时跳过 |
 
-也可以简写成字符串数组：`"bots": ["aaa_bot:/checkin", "bbb_bot /daily"]`
+也可以简写成字符串数组：`"bots": ["aaa_bot:/checkin", "bbb_bot /daily", "https://t.me/mygroup /checkin"]`
+
+#### 发到群组 / 频道
+
+目标支持三种写法，私聊 bot、群组、频道都能用：
+
+| 写法 | 示例 | 说明 |
+|------|------|------|
+| 用户名 | `"aaa_bot"` / `"@mygroup"` | 最常用，bot 私聊或公开群/频道 |
+| 链接 | `"https://t.me/mygroup"` | 效果同上 |
+| 数字 id | `"-1001234567890"` | 私有群/频道用这个（没有公开用户名） |
+
+**三种场景的区别：**
+
+| 场景 | 能做什么 | 说明 |
+|------|---------|------|
+| 私聊 bot | 发命令签到 | 最常见 |
+| **群组** | 发命令签到 | 群里的签到 bot 会响应，**必须配 `botUsername`** 指明是哪个 bot 回复 |
+| **频道** | 只能发通知 | 频道里 bot 不会响应命令；你的账号需是频道管理员才能发言 |
+
+**取私有群的数字 id**：浏览器打开 https://web.telegram.org，进入该群，地址栏 `#-1001234567890` 里的那串就是。也可以直接粘贴 `https://t.me/c/1234567890/5` 这种链接，脚本会自动转成 `-1001234567890`。
+
+#### 签到结果推送到频道 / 群
+
+账户级可选配置 `notify`，签到结束后自动把汇总发过去（用户账号需在该频道/群有发言权限）：
+
+```json
+"notify": "@my_channel"
+```
+
+或只在有失败时推送：
+
+```json
+"notify": { "target": "-1001234567890", "onlyOnFailure": true }
+```
+
+推送效果：
+
+```
+📋 签到汇总: 成功 2, 已签到 1, 失败 0
+✅ @aaa_bot: 签到成功，获得 10 积分
+☑️ @bbb_bot: 今日已签到
+🕒 2026/10/23 18:50:00
+```
 
 #### 第 5 步：跑一次看结果
 
@@ -176,11 +223,15 @@ node telegram-login.js
 [Telegram#1] 连接 Telegram (api_id=123456)...
 [Telegram#1] 使用 SOCKS5 代理 127.0.0.1:10808
 [Telegram#1] Telegram 登录成功: 你的名字 (@yourname)
-[Telegram#1] 共 3 个 bot 待签到
+[Telegram#1] 共 3 个目标待签到
 [Telegram#1] @aaa_bot → 发送命令: /checkin
 [Telegram#1] @aaa_bot 回复: 签到成功，获得 10 积分
 [Telegram#1] ✅ @aaa_bot 签到成功
+[Telegram#1] @my_group → 发送命令: /checkin
+[Telegram#1] @my_group 回复: 签到成功
+[Telegram#1] ✅ @my_group 签到成功
 [Telegram#1] @ccc_bot 已点击按钮: 签到
+[Telegram#1] 已发送签到汇总到 @my_channel
 [Telegram#1] Telegram 签到完成: 成功 3, 已签到 0, 失败 0
 ```
 
@@ -210,6 +261,9 @@ curl --socks5-hostname 127.0.0.1:10808 https://api.telegram.org
 | `连接 Telegram 超时` | 没配 SOCKS5 代理，或端口不支持 SOCKS5 |
 | `session 已失效` | 在客户端里被"终止其他设备登录"了，重跑 `telegram-login.js` |
 | `未收到回复` | bot 要求先 `/start`，把 `command` 改成 `["/start","/checkin"]` |
+| 群里签到收到别人的消息 | 补上 `botUsername` 指定响应的 bot |
+| `无法解析目标` | 私有群/频道用数字 id（`-100` 开头），或确认账号还在群里 |
+| `发送汇总失败` | 用户账号没有该频道/群的发言权限（频道需管理员） |
 | `未识别结果` | bot 回复文案特殊，加 `successKeywords` / `skipKeywords` 自定义 |
 | 命令发了但没签到 | 可能是按钮式签到，加 `clickButton: "签到"` |
 

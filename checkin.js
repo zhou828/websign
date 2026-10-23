@@ -14,21 +14,32 @@
  *   多账户示例:
  *     [{"cookie":"pmt_csrf=xxx"},{"cookie":"pmt_csrf=yyy"}]
  *
- *   TELEGRAM_ACCOUNTS - Telegram bot 签到配置 (可选)
- *     给多个 bot 发送各自的签到命令。Telegram 禁止 bot 之间通信,
+ *   TELEGRAM_ACCOUNTS - Telegram 签到配置 (可选)
+ *     给多个目标发送各自的签到命令。Telegram 禁止 bot 之间通信,
  *     因此用个人账号 (MTProto) 身份发送, 需要先运行 telegram-login.js 生成 session。
+ *
+ *     目标支持三种写法: 用户名 / 链接 / 数字 id
+ *       私聊 bot  : "aaa_bot"
+ *       群组      : "@my_group" 或 "-1001234567890" (私有群), 需配 botUsername 指明响应的 bot
+ *       频道      : 只能发通知 (频道内 bot 不响应命令), 用 notify 配置
  *
  *     {
  *       "api_id": 123456,
  *       "api_hash": "0123456789abcdef0123456789abcdef",
  *       "session": "1BVtsOK...",
  *       "proxy": "socks5://127.0.0.1:10808",
+ *       "notify": "@my_channel",
  *       "bots": [
  *         { "username": "aaa_bot", "command": "/checkin" },
  *         { "username": "bbb_bot", "command": "/daily sign", "waitSeconds": 10 },
- *         { "username": "ccc_bot", "command": ["/start", "/checkin"], "clickButton": "签到" }
+ *         { "username": "ccc_bot", "command": ["/start", "/checkin"], "clickButton": "签到" },
+ *         { "target": "@my_group", "command": "/checkin", "botUsername": "ddd_bot" },
+ *         { "target": "-1001234567890", "command": "/qd", "botUsername": "eee_bot" }
  *       ]
  *     }
+ *
+ *     notify 也可写成对象, 只在失败时推送:
+ *       "notify": { "target": "@my_channel", "onlyOnFailure": true }
  *
  *     多账号写成数组: [{...}, {...}]
  *     bots 也支持简写: ["aaa_bot:/checkin", "bbb_bot /daily"]
