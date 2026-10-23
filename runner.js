@@ -46,7 +46,12 @@ class SiteCheckinRunner {
 
   /**
    * 从环境变量解析账户列表
-   * 支持 JSON 数组、JSON 对象、也可多账户用 & 分隔
+   *
+   * 支持以下格式 (按优先级):
+   *   1. JSON 数组:   [{"cookie":"..."},{"cookie":"..."}]
+   *   2. JSON 对象:   {"cookie":"..."} 或 {"email":"...","password":"..."}
+   *   3. 纯 Cookie:   pmt_access=xxx; pmt_refresh=yyy; pmt_csrf=zzz
+   *   4. email:pass:  a@b.com:pass123  多账户用 & 或换行分隔
    */
   parseAccounts(envKey) {
     const raw = process.env[envKey];
@@ -54,23 +59,44 @@ class SiteCheckinRunner {
 
     const trimmed = raw.trim();
 
-    // 尝试 JSON 解析
-    try {
-      const parsed = JSON.parse(trimmed);
-      if (Array.isArray(parsed)) return parsed;
-      if (typeof parsed === 'object') return [parsed];
-    } catch {
-      // 非 JSON, 尝试 & 分隔
+    // ── 1/2. 尝试 JSON 解析 ──
+    if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
+      try {
+        const parsed = JSON.parse(trimmed);
+        if (Array.isArray(parsed)) return parsed;
+        if (typeof parsed === 'object' && parsed !== null) return [parsed];
+      } catch (e) {
+        this.logger.warn(`JSON 解析失败 (${e.message}), 尝试其他格式...`);
+      }
     }
 
-    // 支持 email:password 格式, 多账户用 & 或换行分隔
+    // ── 3. 纯 Cookie 字符串 (包含 key=value; 形式) ──
+    // 特征: 含 '=' 且 (含 ';' 或含 'pmt_' 等 cookie 名)
+    const looksLikeCookie = /[=]/.test(trimmed) && !/^[^{]*@[^{]*:/.test(trimmed);
+    if (looksLikeCookie && /pmt_|session|token|csrf/i.test(trimmed)) {
+      // 多账户用换行分隔
+      const cookieEntries = trimmed.split(/\n/).map(s => s.trim()).filter(Boolean);
+      return cookieEntries.map(c => ({ cookie: c }));
+    }
+
+    // ── 4. email:password 格式, 多账户用 & 或换行分隔 ──
     const entries = trimmed.split(/[&\n]/).map(s => s.trim()).filter(Boolean);
     const accounts = [];
     for (const entry of entries) {
-      const [email, password] = entry.split(':');
-      if (email && password) {
-        accounts.push({ email: email.trim(), password: password.trim() });
+      const idx = entry.indexOf(':');
+      if (idx > 0) {
+        const email = entry.substring(0, idx).trim();
+        const password = entry.substring(idx + 1).trim();
+        if (email && password) {
+          accounts.push({ email, password });
+        }
       }
+    }
+
+    // ── 5. 兜底: 无法识别, 整串当作 cookie ──
+    if (accounts.length === 0 && /[=]/.test(trimmed)) {
+      this.logger.warn('无法识别配置格式, 整串按 Cookie 处理');
+      return [{ cookie: trimmed }];
     }
 
     return accounts;
