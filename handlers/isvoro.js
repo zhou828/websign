@@ -29,13 +29,43 @@ class IsvoroHandler extends SiteHandler {
     this.baseUrl = 'https://isvoro.com';
     this.apiPrefix = '/api/v1';
     this.cookies = {};
-    // 代理支持: 优先账户级配置, 其次环境变量
-    this.proxy = account.proxy || process.env.ISVORO_PROXY || process.env.HTTPS_PROXY || process.env.https_proxy || '';
+    // 代理: 自动复用运行环境已有的代理 (青龙容器通常已配置), 无需额外设置
+    // 优先级: 账户级 proxy > ISVORO_PROXY (可选覆盖) > 系统标准代理环境变量
+    this.proxy = this._resolveProxy(account.proxy);
+    this.proxyDisabled = false; // 代理不可用时置为 true, 自动降级直连
 
     // 如果配置了 cookie 字符串, 解析为 cookies 对象
     if (account.cookie) {
       this._parseCookieString(account.cookie);
     }
+  }
+
+  /**
+   * 解析代理地址
+   * 青龙面板/容器一般已经配置好代理环境变量, 脚本直接复用即可,
+   * 无需为签到脚本单独设置 ISVORO_PROXY。
+   */
+  _resolveProxy(accountProxy) {
+    const candidates = [
+      accountProxy,
+      process.env.ISVORO_PROXY, // 可选: 单站点覆盖
+      process.env.HTTPS_PROXY,
+      process.env.https_proxy,
+      process.env.ALL_PROXY,
+      process.env.all_proxy,
+      process.env.HTTP_PROXY,
+      process.env.http_proxy,
+    ];
+    for (const c of candidates) {
+      const v = (c || '').trim();
+      if (v && !this._isNoProxy(v)) return v;
+    }
+    return '';
+  }
+
+  /** 排除无效/占位值 */
+  _isNoProxy(v) {
+    return /^(none|false|0|null|direct)$/i.test(v);
   }
 
   /**
@@ -78,10 +108,31 @@ class IsvoroHandler extends SiteHandler {
         return await this._requestOnce(method, path, opts);
       } catch (e) {
         lastErr = e;
-        const isNetworkErr = /ETIMEDOUT|ECONNRESET|ENOTFOUND|EAI_AGAIN|ECONNREFUSED|EPIPE|socket hang up|网络错误/i.test(e.message || '');
-        if (!isNetworkErr || attempt >= retries) break;
+        const msg = e.message || '';
+        const isProxyErr = /代理/.test(msg);
+        const isNetworkErr = /ETIMEDOUT|ECONNRESET|ENOTFOUND|EAI_AGAIN|ECONNREFUSED|EPIPE|socket hang up|网络错误/i.test(msg);
+
+        // 代理本身不可用 (连不上/认证失败) → 立即降级直连, 不占用重试次数
+        if (isProxyErr && this.proxy && !this.proxyDisabled) {
+          this.proxyDisabled = true;
+          this.logger.warn(`代理 ${this.proxy} 不可用, 自动切换为直连重试`);
+          attempt--;
+          continue;
+        }
+
+        if (!isNetworkErr || attempt >= retries) {
+          // 代理下网络始终不通 → 最后再试一次直连
+          if (isNetworkErr && this.proxy && !this.proxyDisabled) {
+            this.proxyDisabled = true;
+            this.logger.warn('经代理访问失败, 尝试直连...');
+            attempt = -1; // 重置计数, 用直连重新走一轮
+            continue;
+          }
+          break;
+        }
+
         const wait = 1000 * Math.pow(2, attempt); // 1s, 2s
-        this.logger.warn(`请求失败 (${e.message}), ${wait}ms 后第 ${attempt + 1} 次重试...`);
+        this.logger.warn(`请求失败 (${msg}), ${wait}ms 后第 ${attempt + 1} 次重试...`);
         await new Promise(r => setTimeout(r, wait));
       }
     }
@@ -165,8 +216,8 @@ class IsvoroHandler extends SiteHandler {
           timeout,
         };
 
-        // ── 代理支持 (HTTP CONNECT 隧道) ──
-        if (this.proxy && isHttps) {
+        // ── 代理支持 (HTTP CONNECT 隧道), 自动复用环境代理 ──
+        if (this.proxy && !this.proxyDisabled && isHttps) {
           const proxyUrl = new URL(this.proxy);
           const targetHost = url.hostname;
           const targetPort = url.port || 443;

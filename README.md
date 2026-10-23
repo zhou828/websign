@@ -98,13 +98,19 @@ pmt_access=ddd; pmt_refresh=eee; pmt_csrf=fff
 定时: 30 8 * * *
 ```
 
-### 4. 网络代理（可选，国内服务器建议配）
+### 4. 网络代理（无需额外配置）
 
-Isvoro 走 Cloudflare，国内服务器访问可能不稳定（`ETIMEDOUT`）。可以配置代理：
+Isvoro 走 Cloudflare，国内服务器访问可能不稳定（`ETIMEDOUT`）。
+
+**脚本会自动复用运行环境里已有的代理环境变量**（`HTTPS_PROXY` / `https_proxy` / `ALL_PROXY` / `HTTP_PROXY` 等）。青龙面板已经配好代理的话，这里什么都不用做。
+
+代理连不上时，脚本会自动降级为直连，不会因为代理失效而整体失败。
+
+只有在需要给这个站点单独指定代理时，才加这个可选变量：
 
 | 变量名 | 说明 |
 |--------|------|
-| `ISVORO_PROXY` | HTTP 代理地址，如 `http://192.168.1.10:7890` |
+| `ISVORO_PROXY` | 仅 Isvoro 使用的代理，如 `http://192.168.1.10:7890` |
 
 脚本已内置重试机制（网络错误自动重试 2 次，间隔 1s/2s）。
 
