@@ -9,6 +9,8 @@ websign/
 ├── checkin.js              # 主入口
 ├── runner.js               # 签到运行器 (解析环境变量、调度、汇总)
 ├── telegram-login.js       # Telegram 登录助手 (生成 session, 只需跑一次)
+├── lib/
+│   └── telegram-proxy.js   # Telegram 代理解析 (签到与登录助手共用)
 ├── handlers/
 │   ├── base.js             # 站点处理器基类 (定义接口规范)
 │   ├── isvoro.js           # Isvoro 签到处理器
@@ -26,6 +28,7 @@ websign/
 - `handlers/base.js`
 - `handlers/isvoro.js`
 - `handlers/telegram.js`（要用 Telegram 签到才需要）
+- `lib/telegram-proxy.js`（Telegram 签到需要）
 - `telegram-login.js`（只在你自己电脑上跑，不用放青龙）
 
 ### 2. 添加环境变量
@@ -128,8 +131,19 @@ Telegram 官方禁止 bot 与 bot 互相通信，所以不能用自己的 bot �
 
 ```bash
 npm install telegram
-node telegram-login.js
+node telegram-login.js --proxy socks5://127.0.0.1:10808
 ```
+
+> **国内必须带 `--proxy`**，否则会一直报 `connect ETIMEDOUT 149.154.167.91:80`——那是 Telegram 服务器地址，直连不通。
+>
+> 端口按你的客户端填：v2rayN 一般是 `10808`，Clash 是 `7890`，SSR 是 `1080`。
+> 不写 `--proxy` 时脚本会自动读环境变量 `TG_PROXY` / `HTTPS_PROXY` / `ALL_PROXY`。
+>
+> 先验证代理可用：
+> ```bash
+> curl --socks5-hostname 127.0.0.1:10808 https://api.telegram.org
+> ```
+> 返回 302 就说明 SOCKS5 正常。
 
 按提示输入 `api_id`、`api_hash`、手机号（含国家码如 `+8613800000000`）、Telegram 收到的验证码，如果开了两步验证再输密码。
 
@@ -262,6 +276,7 @@ curl --socks5-hostname 127.0.0.1:10808 https://api.telegram.org
 | 现象 | 原因 / 解决 |
 |------|------------|
 | `缺少 telegram 依赖` | 青龙依赖管理里装 `telegram` |
+| `connect ETIMEDOUT 149.154.167.91` | 直连不通，加 `--proxy socks5://127.0.0.1:10808`（登录）或配置 `"proxy"`（签到） |
 | `连接 Telegram 超时` | 没配 SOCKS5 代理，或端口不支持 SOCKS5 |
 | `session 已失效` | 在客户端里被"终止其他设备登录"了，重跑 `telegram-login.js` |
 | `未收到回复` | bot 要求先 `/start`，把 `command` 改成 `["/start","/checkin"]` |

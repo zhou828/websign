@@ -50,6 +50,7 @@
  */
 
 const { SiteHandler } = require('./base');
+const { resolveProxy, toGramProxy, describeProxy } = require('../lib/telegram-proxy');
 
 const DEFAULTS = {
   waitSeconds: 8,
@@ -117,82 +118,7 @@ class TelegramHandler extends SiteHandler {
    * 优先级: 账户 proxy > TG_PROXY > 环境 HTTPS_PROXY/ALL_PROXY/HTTP_PROXY (按 SOCKS5 尝试)
    */
   _resolveTgProxy() {
-    const fromAccount = this.account.proxy;
-    if (fromAccount) {
-      const p = typeof fromAccount === 'object' ? this._cleanProxy(fromAccount, false) : this._parseProxy(fromAccount, false);
-      if (p) return p;
-    }
-
-    for (const key of ['TG_PROXY', 'TELEGRAM_PROXY']) {
-      const v = (process.env[key] || '').trim();
-      if (v) {
-        const p = this._parseProxy(v, false);
-        if (p) return p;
-      }
-    }
-
-    // 复用运行环境已有的代理 (青龙通常已配置)
-    for (const key of ['ALL_PROXY', 'all_proxy', 'HTTPS_PROXY', 'https_proxy', 'HTTP_PROXY', 'http_proxy']) {
-      const v = (process.env[key] || '').trim();
-      if (!v || /^(none|false|0|null|direct)$/i.test(v)) continue;
-      const p = this._parseProxy(v, true);
-      if (p) return p;
-    }
-
-    return null;
-  }
-
-  /** 字符串 → GramJS proxy 对象 */
-  _parseProxy(str, assumed) {
-    let s = String(str).trim();
-    let assumedSocks = assumed;
-
-    if (/^socks5:\/\//i.test(s) || /^socks:\/\//i.test(s)) {
-      s = s.replace(/^socks5?:\/\//i, '');
-      assumedSocks = false;
-    } else if (/^https?:\/\//i.test(s)) {
-      s = s.replace(/^https?:\/\//i, '');
-      assumedSocks = true; // HTTP 代理端口通常也开了 SOCKS, 先按 SOCKS5 试
-    } else if (/^mtproxy:\/\//i.test(s)) {
-      s = s.replace(/^mtproxy:\/\//i, '');
-    }
-
-    s = s.replace(/\/.*$/, ''); // 去掉路径
-
-    let username;
-    let password;
-    const at = s.lastIndexOf('@');
-    if (at > 0) {
-      const auth = s.substring(0, at);
-      s = s.substring(at + 1);
-      const colon = auth.indexOf(':');
-      if (colon > 0) {
-        username = decodeURIComponent(auth.substring(0, colon));
-        password = decodeURIComponent(auth.substring(colon + 1));
-      } else {
-        username = decodeURIComponent(auth);
-      }
-    }
-
-    const m = s.match(/^\[?([^\]]+?)\]?:(\d+)$/) || s.match(/^(.+):(\d+)$/);
-    if (!m) return null;
-
-    return this._cleanProxy({ ip: m[1], port: Number(m[2]), username, password }, assumedSocks);
-  }
-
-  /** 规范化 proxy 对象, 只保留 GramJS 认识的字段 */
-  _cleanProxy(obj, assumed) {
-    if (!obj || !obj.ip || !obj.port) return null;
-    const clean = {
-      ip: String(obj.ip),
-      port: Number(obj.port),
-      socksType: Number(obj.socksType) || 5,
-      timeout: Number(obj.timeout) || 10,
-    };
-    if (obj.username) clean.username = String(obj.username);
-    if (obj.password) clean.password = String(obj.password);
-    clean.assumed = !!assumed;
-    return clean;
+    return resolveProxy(this.account.proxy);
   }
 
   /** 账户标签 (日志用) */
@@ -229,15 +155,14 @@ class TelegramHandler extends SiteHandler {
     this.logger.info(`连接 Telegram (api_id=${apiId})...`);
     if (proxy) {
       this.logger.info(
-        `使用 SOCKS5 代理 ${proxy.ip}:${proxy.port}` +
-        (proxy.assumed ? ' (由环境 HTTP 代理配置推断, 若失败请显式配置 "proxy":"socks5://ip:port")' : '')
+        `使用 ${describeProxy(proxy)}` +
+        (proxy.assumed ? ', 若连接失败请显式配置 "proxy":"socks5://ip:port"' : '')
       );
     }
 
     const baseOpts = { connectionRetries: 2, timeout: 30 };
     if (proxy) {
-      const { assumed, ...gramProxy } = proxy;
-      baseOpts.proxy = gramProxy;
+      baseOpts.proxy = toGramProxy(proxy);
     }
     const createClient = (useWSS) => new TelegramClient(
       new StringSession(String(session).trim()),
@@ -272,7 +197,7 @@ class TelegramHandler extends SiteHandler {
     if (lastErr) {
       throw new Error(
         `无法连接 Telegram 服务器: ${lastErr.message}\n` +
-        `当前网络: ${proxy ? `SOCKS5 代理 ${proxy.ip}:${proxy.port}` : '直连 (未配置代理)'}\n` +
+        `当前网络: ${describeProxy(proxy)}\n` +
         '常见原因与解决办法:\n' +
         (proxy
           ? '  1. 该端口不支持 SOCKS5 (如只开了 HTTP 代理) → 换成 SOCKS5 端口, Clash 混合端口 7890 同时支持两者\n'
