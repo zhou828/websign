@@ -514,6 +514,16 @@ node list-groups.js            # 青龙「终端」里也能直接跑
       onlyOnFailure: true
 ```
 
+如果不想由用户账号发送到“已保存的消息”，可以改用通知机器人：
+
+```yaml
+    notify:
+      target: '@my_user'
+      botToken: '123456789:AAxxxxxxxxxxxxxxxx'
+```
+
+个人接收者需要先打开该机器人并发送 `/start`；群组或频道需要把机器人加入并授予发消息权限。
+
 推送效果：
 
 ```

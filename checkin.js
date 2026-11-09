@@ -22,6 +22,7 @@
  *       session: 'telegram-login.js 生成的长串'
  *       proxy: 'socks5://127.0.0.1:10808'     # 可选
  *       notify: '@my_user'                    # 可选, 完成通知发给个人/群/频道
+ *       # notify: { target: '@my_user', botToken: '机器人Token' } # 可选, 改用机器人发送
  *       bots:
  *         - username: aaa_bot
  *           command: /checkin

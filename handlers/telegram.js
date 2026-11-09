@@ -143,11 +143,25 @@ class TelegramHandler extends SiteHandler {
 
     const target = typeof cfg === 'string' ? cfg : cfg.target;
     if (!target) return false;
+    const botToken = typeof cfg === 'object' && cfg.botToken
+      ? String(cfg.botToken).trim()
+      : '';
 
     const onlyFail = typeof cfg === 'object' && cfg.onlyOnFailure;
     if (onlyFail && failedCount === 0) {
       this.logger.info('无失败项, 按配置跳过执行完成通知');
       return false;
+    }
+
+    if (botToken) {
+      try {
+        await this._sendViaBot(target, botToken, message, '发送执行完成通知');
+        this.logger.info(`已通过通知机器人发送执行完成通知到 ${target}`);
+        return true;
+      } catch (e) {
+        this.logger.warn(`通过通知机器人发送执行完成通知到 ${target} 失败: ${e.message}`);
+        return false;
+      }
     }
 
     try {
@@ -165,6 +179,63 @@ class TelegramHandler extends SiteHandler {
       return false;
     } finally {
       await this._disconnectSafe();
+    }
+  }
+
+  async _sendViaBot(target, botToken, message, sendLabel) {
+    const { TelegramClient, StringSession } = this._loadTg();
+    const apiId = Number(this.account.api_id || process.env.TELEGRAM_API_ID);
+    const apiHash = this.account.api_hash || process.env.TELEGRAM_API_HASH;
+    if (!apiId || !apiHash) {
+      throw new Error('缺少 api_id / api_hash, 无法连接通知机器人');
+    }
+
+    const proxy = this._resolveTgProxy();
+    const clientOpts = { connectionRetries: 2, timeout: 30, autoReconnect: false };
+    if (proxy) clientOpts.proxy = toGramProxy(proxy);
+
+    const client = new TelegramClient(
+      new StringSession(''),
+      apiId,
+      StringHash(apiHash),
+      clientOpts
+    );
+
+    try {
+      await this._withTimeout(
+        client.start({ botAuthToken: botToken }),
+        60000,
+        '连接通知机器人'
+      );
+
+      const resolved = this._resolveTarget(target);
+      let entity;
+      try {
+        entity = await this._withTimeout(client.getEntity(resolved), 20000, '解析机器人通知目标');
+      } catch (e) {
+        if (typeof resolved !== 'number') throw e;
+        await this._withTimeout(client.getDialogs({ limit: 500 }), 60000, '读取机器人对话列表');
+        entity = await this._withTimeout(
+          client.getEntity(resolved),
+          20000,
+          '解析机器人通知目标'
+        );
+      }
+
+      await this._withTimeout(
+        client.sendMessage(entity, { message }),
+        20000,
+        sendLabel
+      );
+    } finally {
+      try {
+        const close = typeof client.destroy === 'function'
+          ? client.destroy()
+          : client.disconnect();
+        await this._withTimeout(close, 5000, '关闭通知机器人连接');
+      } catch (e) {
+        this.logger.warn(`关闭通知机器人连接失败: ${e.message}`);
+      }
     }
   }
 
@@ -386,6 +457,7 @@ class TelegramHandler extends SiteHandler {
     const waitSeconds = bot.waitSeconds || DEFAULTS.waitSeconds;
 
     const entity = await this._getEntity(bot.target);
+    bot.label = this._displayLabel(entity, bot.label);
     const payloads = commands.map(c => this._decorateCommand(String(c), bot));
     this.logger.info(`${bot.label} → 发送: ${payloads.join(' , ')}`);
 
@@ -575,6 +647,15 @@ class TelegramHandler extends SiteHandler {
     lines.push(`🕒 ${new Date().toLocaleString('zh-CN', { hour12: false })}`);
 
     try {
+      const botToken = typeof cfg === 'object' && cfg.botToken
+        ? String(cfg.botToken).trim()
+        : '';
+      if (botToken) {
+        await this._sendViaBot(target, botToken, lines.join('\n'), '发送汇总通知');
+        this.logger.info(`已通过通知机器人发送签到汇总到 ${target}`);
+        return;
+      }
+
       const entity = await this._getEntity(target);
       await this._withTimeout(
         this.client.sendMessage(entity, { message: lines.join('\n') }),
@@ -585,6 +666,19 @@ class TelegramHandler extends SiteHandler {
     } catch (e) {
       this.logger.warn(`发送汇总到 ${target} 失败: ${e.message}`);
     }
+  }
+
+  /** 显示目标名称 */
+  _displayLabel(entity, fallback) {
+    if (!entity) return fallback;
+    if (entity.title) return String(entity.title).trim() || fallback;
+    if (entity.username) return `@${String(entity.username).replace(/^@/, '')}`;
+
+    const name = [entity.firstName, entity.lastName]
+      .filter(Boolean)
+      .join(' ')
+      .trim();
+    return name || fallback;
   }
 
   /** 取消息文本 */

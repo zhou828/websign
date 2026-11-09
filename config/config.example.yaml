@@ -107,6 +107,11 @@ telegram:
     #   target: '-1001234567890'
     #   onlyOnFailure: true
 
+    # 【可选】改用另一个 Telegram 机器人发送 (个人需先给机器人发送 /start)
+    # notify:
+    #   target: '@my_user'
+    #   botToken: '123456789:AAxxxxxxxxxxxxxxxx'
+
     # 【必填】签到目标列表, 每个 bot / 群一条
     bots:
 
