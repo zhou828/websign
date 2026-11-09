@@ -57,7 +57,7 @@ const DEFAULTS = {
   waitSeconds: 8,
   pollIntervalMs: 2000,
   betweenBotsMs: 1500,
-  skipKeywords: ['已签到', '已经签到', '重复签到', '今日已', 'already'],
+  skipKeywords: ['已签到', '已经签到', '重复签到', '今日已', '已签过', '已经签过', 'already'],
   failKeywords: ['失败', '错误', '异常', '无效', '过期', '不支持', 'error', 'failed'],
   successKeywords: ['成功', '获得', '已领取', '签到完成', 'success'],
 };
@@ -117,7 +117,10 @@ class TelegramHandler extends SiteHandler {
     if (!client) return;
 
     try {
-      await this._withTimeout(client.disconnect(), 5000, '关闭 Telegram 连接');
+      const close = typeof client.destroy === 'function'
+        ? client.destroy()
+        : client.disconnect();
+      await this._withTimeout(close, 5000, '关闭 Telegram 连接');
       this.logger.info('Telegram 连接已断开');
     } catch (e) {
       this.logger.warn(`关闭 Telegram 连接失败: ${e.message}`);
