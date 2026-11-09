@@ -21,7 +21,7 @@
  *       api_hash: '32位字符'
  *       session: 'telegram-login.js 生成的长串'
  *       proxy: 'socks5://127.0.0.1:10808'     # 可选
- *       notify: '@my_channel'                 # 可选, 签到汇总发这里
+ *       notify: '@my_user'                    # 可选, 完成通知发给个人/群/频道
  *       bots:
  *         - username: aaa_bot
  *           command: /checkin
@@ -57,7 +57,7 @@ const { IsvoroHandler } = require('./handlers/isvoro');
 const { TelegramHandler } = require('./handlers/telegram');
 const { loadIsvoroAccounts } = require('./lib/config');
 const { loadTelegramAccounts } = require('./lib/telegram-config');
-const { SiteCheckinRunner } = require('./runner');
+const { SiteCheckinRunner, Logger } = require('./runner');
 
 // ============================================================
 // 站点注册表 — 新增网站在这里注册
@@ -86,8 +86,47 @@ const siteRegistry = {
 // ============================================================
 // 主入口
 // ============================================================
+function buildCompletionMessage(summary) {
+  const lines = ['📋 多站点签到完成'];
+  for (const result of summary.allResults) {
+    const icon = result.fail > 0
+      ? '❌'
+      : result.success > 0
+        ? '✅'
+        : result.skip > 0
+          ? '☑️'
+          : 'ℹ️';
+    lines.push(
+      `${icon} ${result.site}：成功 ${result.success}，已签到 ${result.skip || 0}，失败 ${result.fail}`
+    );
+  }
+  lines.push(
+    `${summary.totalFail > 0 ? '❌' : '✅'} 总计：成功 ${summary.totalSuccess}，已签到 ${summary.totalSkip}，失败 ${summary.totalFail}`
+  );
+  lines.push(`🕒 ${new Date().toLocaleString('zh-CN', { hour12: false })}`);
+  return lines.join('\n');
+}
+
+async function sendCompletionNotify(summary) {
+  const logger = new Logger('Notify');
+  let accounts;
+  try {
+    accounts = loadTelegramAccounts(logger).filter(account => account.notify);
+  } catch (e) {
+    logger.warn(`读取 Telegram 通知配置失败: ${e.message}`);
+    return;
+  }
+  if (!accounts.length) return;
+
+  const message = buildCompletionMessage(summary);
+  for (const account of accounts) {
+    const handler = new TelegramHandler(account, logger);
+    await handler.sendCompletionNotify(message, summary.totalFail);
+  }
+}
+
 async function main() {
-  const runner = new SiteCheckinRunner(siteRegistry);
+  const runner = new SiteCheckinRunner(siteRegistry, { onComplete: sendCompletionNotify });
   await runner.runAll();
 }
 

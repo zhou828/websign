@@ -137,6 +137,37 @@ class TelegramHandler extends SiteHandler {
     }
   }
 
+  async sendCompletionNotify(message, failedCount = 0) {
+    const cfg = this.account.notify;
+    if (!cfg) return false;
+
+    const target = typeof cfg === 'string' ? cfg : cfg.target;
+    if (!target) return false;
+
+    const onlyFail = typeof cfg === 'object' && cfg.onlyOnFailure;
+    if (onlyFail && failedCount === 0) {
+      this.logger.info('无失败项, 按配置跳过执行完成通知');
+      return false;
+    }
+
+    try {
+      await this.login();
+      const entity = await this._getEntity(target);
+      await this._withTimeout(
+        this.client.sendMessage(entity, { message }),
+        20000,
+        '发送执行完成通知'
+      );
+      this.logger.info(`已发送执行完成通知到 ${target}`);
+      return true;
+    } catch (e) {
+      this.logger.warn(`发送执行完成通知到 ${target} 失败: ${e.message}`);
+      return false;
+    } finally {
+      await this._disconnectSafe();
+    }
+  }
+
   /**
    * 解析 Telegram 代理
    * GramJS 只支持 SOCKS5 / MTProxy, 不支持 HTTP 代理

@@ -39,8 +39,9 @@ class SiteCheckinRunner {
    * @param {object} siteRegistry  站点注册表
    *   { isvoro: { handler: IsvoroHandler, envKey: 'ISVORO_ACCOUNTS', label: 'Isvoro' } }
    */
-  constructor(siteRegistry) {
+  constructor(siteRegistry, options = {}) {
     this.siteRegistry = siteRegistry;
+    this.onComplete = options.onComplete;
     this.logger = new Logger('Runner');
   }
 
@@ -230,6 +231,17 @@ class SiteCheckinRunner {
     if (totalFail > 0) {
       process.exitCode = 1;
     }
+
+    const summary = {
+      allResults,
+      totalSuccess,
+      totalSkip,
+      totalFail,
+    };
+    if (typeof this.onComplete === 'function') {
+      await this.onComplete(summary);
+    }
+    return summary;
   }
 }
 
