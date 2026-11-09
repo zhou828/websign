@@ -112,6 +112,28 @@ class TelegramHandler extends SiteHandler {
     return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
   }
 
+  async _disconnectSafe() {
+    const client = this.client;
+    if (!client) return;
+
+    try {
+      await this._withTimeout(client.disconnect(), 5000, '关闭 Telegram 连接');
+      this.logger.info('Telegram 连接已断开');
+    } catch (e) {
+      this.logger.warn(`关闭 Telegram 连接失败: ${e.message}`);
+    } finally {
+      if (this.client === client) this.client = null;
+    }
+  }
+
+  async runCheckin() {
+    try {
+      return await super.runCheckin();
+    } finally {
+      await this._disconnectSafe();
+    }
+  }
+
   /**
    * 解析 Telegram 代理
    * GramJS 只支持 SOCKS5 / MTProxy, 不支持 HTTP 代理
@@ -179,7 +201,7 @@ class TelegramHandler extends SiteHandler {
       );
     }
 
-    const baseOpts = { connectionRetries: 2, timeout: 30 };
+    const baseOpts = { connectionRetries: 2, timeout: 30, autoReconnect: false };
     if (proxy) {
       baseOpts.proxy = toGramProxy(proxy);
     }
@@ -196,7 +218,7 @@ class TelegramHandler extends SiteHandler {
       await this._withTimeout(this.client.connect(), 60000, '连接 Telegram');
     } catch (e) {
       lastErr = e;
-      try { await this.client.disconnect(); } catch { /* ignore */ }
+      await this._disconnectSafe();
 
       // GramJS 不允许 useWSS 与代理同时使用, 有代理时不做 WSS 回退
       if (proxy) {
@@ -299,8 +321,7 @@ class TelegramHandler extends SiteHandler {
       const summaryText = `成功 ${ok}, 已签到 ${skipped}, 失败 ${failed}`;
       await this._sendNotify(results, summaryText);
     } finally {
-      try { await this.client.disconnect(); } catch { /* ignore */ }
-      this.logger.info('Telegram 连接已断开');
+      await this._disconnectSafe();
     }
 
     const summary = `成功 ${ok}, 已签到 ${skipped}, 失败 ${failed}`;
