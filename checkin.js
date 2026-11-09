@@ -128,7 +128,7 @@ function buildCompletionMessage(summary) {
         }
       } else {
         lines.push(
-          `${account.success ? '✅' : '❌'} ${account.email}: ${shortenFeedback(account.message || '无反馈')}`
+          `${account.success ? '✅' : '❌'} ${result.site}: ${shortenFeedback(account.message || '无反馈')}`
         );
       }
     }
