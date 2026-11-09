@@ -153,6 +153,7 @@ class SiteCheckinRunner {
           success: true,
           skipped: !!result.skipped,
           message: result.skipped ? '今日已签到' : '签到成功',
+          detail: result.result || null,
         });
         if (result.skipped) {
           skipCount++;

@@ -87,6 +87,17 @@ const siteRegistry = {
 // ============================================================
 // 主入口
 // ============================================================
+function feedbackIcon(status) {
+  if (status === 'failed') return '❌';
+  if (status === 'unknown') return '⚠️';
+  return '✅';
+}
+
+function shortenFeedback(value, max = 500) {
+  const text = String(value || '').trim();
+  return text.length > max ? `${text.substring(0, max)}...` : text;
+}
+
 function buildCompletionMessage(summary) {
   const lines = ['📋 多站点签到完成'];
   for (const result of summary.allResults) {
@@ -95,7 +106,7 @@ function buildCompletionMessage(summary) {
       : result.success > 0
         ? '✅'
         : result.skip > 0
-          ? '☑️'
+          ? '✅'
           : 'ℹ️';
     lines.push(
       `${icon} ${result.site}：成功 ${result.success}，已签到 ${result.skip || 0}，失败 ${result.fail}`
@@ -104,6 +115,25 @@ function buildCompletionMessage(summary) {
   lines.push(
     `${summary.totalFail > 0 ? '❌' : '✅'} 总计：成功 ${summary.totalSuccess}，已签到 ${summary.totalSkip}，失败 ${summary.totalFail}`
   );
+
+  lines.push('', '📌 详细反馈');
+  for (const result of summary.allResults) {
+    for (const account of result.results || []) {
+      const telegramResults = account.detail && account.detail.results;
+      if (Array.isArray(telegramResults) && telegramResults.length) {
+        for (const item of telegramResults) {
+          lines.push(
+            `${feedbackIcon(item.status)} ${item.bot}: ${shortenFeedback(item.message || item.status)}`
+          );
+        }
+      } else {
+        lines.push(
+          `${account.success ? '✅' : '❌'} ${account.email}: ${shortenFeedback(account.message || '无反馈')}`
+        );
+      }
+    }
+  }
+
   lines.push(`🕒 ${new Date().toLocaleString('zh-CN', { hour12: false })}`);
   return lines.join('\n');
 }
