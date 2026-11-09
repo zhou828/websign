@@ -422,9 +422,6 @@ class TelegramHandler extends SiteHandler {
         }
       }
 
-      // 可选: 把汇总发到指定频道/群
-      const summaryText = `成功 ${ok}, 已签到 ${skipped}, 失败 ${failed}`;
-      await this._sendNotify(results, summaryText);
     } finally {
       await this._disconnectSafe();
     }
@@ -621,64 +618,18 @@ class TelegramHandler extends SiteHandler {
     }
   }
 
-  /**
-   * 发送签到汇总通知到指定频道/群
-   * 配置: "notify": "@mychannel"  或  "notify": {"target":"@mychannel","onlyOnFailure":true}
-   */
-  async _sendNotify(results, summary) {
-    const cfg = this.account.notify;
-    if (!cfg) return;
-
-    const target = typeof cfg === 'string' ? cfg : cfg.target;
-    if (!target) return;
-
-    const onlyFail = typeof cfg === 'object' && cfg.onlyOnFailure;
-    const failedCount = results.filter(r => r.status === 'failed').length;
-    if (onlyFail && failedCount === 0) {
-      this.logger.info('无失败项, 按配置跳过通知');
-      return;
-    }
-
-    const icon = { success: '✅', skipped: '☑️', unknown: '❔', failed: '❌' };
-    const lines = [`📋 签到汇总: ${summary}`];
-    for (const r of results) {
-      lines.push(`${icon[r.status] || '•'} ${r.bot}: ${truncate(r.message || r.status, 100)}`);
-    }
-    lines.push(`🕒 ${new Date().toLocaleString('zh-CN', { hour12: false })}`);
-
-    try {
-      const botToken = typeof cfg === 'object' && cfg.botToken
-        ? String(cfg.botToken).trim()
-        : '';
-      if (botToken) {
-        await this._sendViaBot(target, botToken, lines.join('\n'), '发送汇总通知');
-        this.logger.info(`已通过通知机器人发送签到汇总到 ${target}`);
-        return;
-      }
-
-      const entity = await this._getEntity(target);
-      await this._withTimeout(
-        this.client.sendMessage(entity, { message: lines.join('\n') }),
-        20000,
-        '发送汇总通知'
-      );
-      this.logger.info(`已发送签到汇总到 ${target}`);
-    } catch (e) {
-      this.logger.warn(`发送汇总到 ${target} 失败: ${e.message}`);
-    }
-  }
-
   /** 显示目标名称 */
   _displayLabel(entity, fallback) {
     if (!entity) return fallback;
     if (entity.title) return String(entity.title).trim() || fallback;
-    if (entity.username) return `@${String(entity.username).replace(/^@/, '')}`;
 
     const name = [entity.firstName, entity.lastName]
       .filter(Boolean)
       .join(' ')
       .trim();
-    return name || fallback;
+    if (name) return name;
+    if (entity.username) return `@${String(entity.username).replace(/^@/, '')}`;
+    return fallback;
   }
 
   /** 取消息文本 */
