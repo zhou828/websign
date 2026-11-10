@@ -133,6 +133,7 @@ class SiteCheckinRunner {
     logger.info(`共 ${accounts.length} 个账户`);
 
     const results = [];
+    let totalCount = 0;
     let successCount = 0;
     let skipCount = 0;
     let failCount = 0;
@@ -147,17 +148,35 @@ class SiteCheckinRunner {
       try {
         const handler = new siteConfig.handler(account, accLogger);
         const result = await handler.runCheckin();
+        const detail = result.result;
+        const detailTotal = detail && Number(detail.total);
+        const detailSuccess = detail && Number(detail.ok);
+        const detailSkip = detail && Number(detail.skipped);
+        const detailFail = detail && Number(detail.failed);
+        const hasTargetSummary = [detailTotal, detailSuccess, detailSkip, detailFail]
+          .every(Number.isFinite);
 
         results.push({
           email: accLabel,
-          success: true,
-          skipped: !!result.skipped,
-          message: result.skipped ? '今日已签到' : '签到成功',
-          detail: result.result || null,
+          success: hasTargetSummary ? detailSuccess > 0 : true,
+          skipped: hasTargetSummary
+            ? detailSuccess === 0 && detailSkip > 0
+            : !!result.skipped,
+          message: hasTargetSummary
+            ? `成功 ${detailSuccess}, 已签到 ${detailSkip}, 失败 ${detailFail}`
+            : (result.skipped ? '今日已签到' : '签到成功'),
+          detail: detail || null,
         });
-        if (result.skipped) {
+        if (hasTargetSummary) {
+          totalCount += detailTotal;
+          successCount += detailSuccess;
+          skipCount += detailSkip;
+          failCount += detailFail;
+        } else if (result.skipped) {
+          totalCount++;
           skipCount++;
         } else {
+          totalCount++;
           successCount++;
         }
       } catch (err) {
@@ -174,6 +193,7 @@ class SiteCheckinRunner {
           success: false,
           message: errMsg,
         });
+        totalCount++;
         failCount++;
       }
     }
@@ -185,7 +205,7 @@ class SiteCheckinRunner {
     );
     return {
       site: siteConfig.label,
-      total: accounts.length,
+      total: totalCount,
       success: successCount,
       skip: skipCount,
       fail: failCount,
